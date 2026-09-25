@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal as D, InvalidOperation, ROUND_DOWN
 from pathlib import Path
 from campaign_config import load_config, require_matching_hash, CampaignConfigError
+from campaign_window import resolve_window, CampaignWindowError
 
 CFG, CONFIG_SHA256 = load_config()
 FAST_CFG = CFG["fast_10s"]
@@ -31,8 +32,12 @@ def parse_time(s):
 def new_state():
     return {"paper_only":True,"version":1,"config_sha256":CONFIG_SHA256,"last_processed_at":None,"hist":{},"accounts":{s:{"cash":"10000","reserve":"0","positions":{},"trades":[]} for s in STRATEGIES}}
 
-def load_state(path):
-    if not path.exists(): return new_state()
+def load_state(path, *, now, window):
+    if not path.exists():
+        start=parse_time(window["started_at"])
+        if now > start + __import__("datetime").timedelta(minutes=30):
+            raise EngineError("STATE_MISSING_OUTSIDE_INIT_WINDOW")
+        return new_state()
     try:s=json.loads(path.read_text())
     except Exception as e: raise EngineError("STATE_UNREADABLE") from e
     if s.get("paper_only") is not True or s.get("version")!=1: raise EngineError("STATE_INVALID")
@@ -108,9 +113,17 @@ def read_jsonl(path):
     return out
 
 def main(argv=None):
-    ap=argparse.ArgumentParser(); ap.add_argument("--samples",required=True); ap.add_argument("--state",required=True)
-    a=ap.parse_args(argv); sp=Path(a.samples); st=Path(a.state); state=load_state(st); n=process(state,read_jsonl(sp)); st.parent.mkdir(parents=True,exist_ok=True); st.write_text(json.dumps(state,ensure_ascii=False,indent=2))
-    print(json.dumps({"paper_only":True,"processed_samples":n,"last_processed_at":state["last_processed_at"]},ensure_ascii=False)); return 0
+    ap=argparse.ArgumentParser(); ap.add_argument("--samples",required=True); ap.add_argument("--state",required=True); ap.add_argument("--window",required=True)
+    a=ap.parse_args(argv)
+    now=datetime.now(timezone.utc)
+    try:
+        window=resolve_window(Path(a.window),now=now,hours=int(CFG["duration_hours"]))
+    except CampaignWindowError as e:
+        raise EngineError(str(e)) from e
+    if not window["active"]:
+        print(json.dumps({"paper_only":True,"status":"ENDED","started_at":window["started_at"],"ends_at":window["ends_at"]},ensure_ascii=False)); return 0
+    sp=Path(a.samples); st=Path(a.state); state=load_state(st,now=now,window=window); n=process(state,read_jsonl(sp)); st.parent.mkdir(parents=True,exist_ok=True); st.write_text(json.dumps(state,ensure_ascii=False,indent=2))
+    print(json.dumps({"paper_only":True,"processed_samples":n,"last_processed_at":state["last_processed_at"],"started_at":window["started_at"],"ends_at":window["ends_at"]},ensure_ascii=False)); return 0
 if __name__=="__main__":
     try: raise SystemExit(main())
     except EngineError as e:
