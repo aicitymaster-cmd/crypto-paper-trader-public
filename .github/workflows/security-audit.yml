@@ -1,18 +1,29 @@
-name: security-audit
+name: paper-validation
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '*/5 * * * *'
 
-# Zero repository token permissions. This job needs no secrets and performs no writes.
 permissions: {}
 
+concurrency:
+  group: paper-validation-v1
+  cancel-in-progress: false
+
 jobs:
-  audit:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 4
     steps:
+      - name: Restore PAPER state cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .paper_state
+          key: paper-state-v1-${{ github.run_id }}
+          restore-keys: |
+            paper-state-v1-
+
       - name: Fetch exact public commit without credentials
         shell: bash
         env:
@@ -20,11 +31,30 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          test -n "$REPOSITORY"
-          test -n "$COMMIT_SHA"
-          curl --fail --silent --show-error --location             --proto '=https' --tlsv1.2             --max-time 30 --max-filesize 20000000             "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz"             -o repo.tar.gz
+          curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            --max-time 30 --max-filesize 20000000 \
+            "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" \
+            -o repo.tar.gz
           mkdir repo
           tar -xzf repo.tar.gz --strip-components=1 -C repo
           cd repo
           python3 security_guard.py .
-          python3 -m unittest discover -v
+          python3 -m unittest discover -q
+
+      - name: Run five-minute PAPER cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .paper_state
+          python3 repo/live_paper_cycle.py \
+            --state .paper_state/state.json \
+            --campaign-start 2026-09-25T08:15:00Z \
+            --campaign-end 2026-10-02T08:15:00Z \
+            | tee paper-summary.json
+          {
+            echo '## PAPER validation summary'
+            echo '~~~json'
+            cat paper-summary.json
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
