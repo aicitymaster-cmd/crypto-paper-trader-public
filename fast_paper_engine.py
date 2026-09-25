@@ -13,7 +13,7 @@ RISK_CFG = CFG["common_risk"]
 STRATEGIES=tuple(v["name"] for v in FAST_CFG["strategies"].values())
 START=D(CFG["initial_state"]["cash_yen_per_strategy"])
 FEE=D(RISK_CFG["fee_rate_each_side"]); SLIP=D(RISK_CFG["slippage_rate_each_side"]); FRACTION=D(FAST_CFG["trade_fraction"])
-MAX_POS=int(RISK_CFG["max_positions"]); STOP=D(FAST_CFG["stop_loss"]); TAKE=D(FAST_CFG["take_profit"]); MAX_HOLD=int(FAST_CFG["max_hold_samples"])
+MAX_POS=int(RISK_CFG["max_positions"]); STOP=D(FAST_CFG["stop_loss"]); TAKE=D(FAST_CFG["take_profit"]); MAX_HOLD=int(FAST_CFG["max_hold_samples"]); MIN_NET=D(RISK_CFG["minimum_projected_net_return"])
 
 class EngineError(RuntimeError): pass
 
@@ -62,8 +62,19 @@ def sig(strategy,h):
         return "buy" if zz<=-1.5 and trend else "sell" if zz>=0 else "skip"
     raise EngineError("UNKNOWN_STRATEGY")
 
+def projected_net_return_at_take_profit(tick):
+    ask=dec(tick["ask"]); bid=dec(tick["bid"]); last=dec(tick["last"])
+    buy_px=ask*(D(1)+SLIP)
+    entry_cost=buy_px*(D(1)+FEE)
+    spread_ratio=bid/last
+    future_bid=last*(D(1)+TAKE)*spread_ratio
+    exit_px=future_bid*(D(1)-SLIP)
+    exit_net=exit_px*(D(1)-FEE)
+    return (exit_net/entry_cost)-D(1)
+
 def buy(a,sym,tick,at,index):
     if sym in a["positions"] or len(a["positions"])>=MAX_POS:return
+    if projected_net_return_at_take_profit(tick) < MIN_NET:return
     cash=D(a["cash"]); ask=dec(tick["ask"]); px=ask*(D(1)+SLIP); budget=cash*FRACTION
     qty=(budget/(px*(D(1)+FEE))).quantize(D("0.00000001"),rounding=ROUND_DOWN)
     if qty<=0:return
