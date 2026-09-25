@@ -42,6 +42,7 @@ MAX_POSITIONS = int(RISK_CFG["max_positions"])
 MAX_HOLD_BARS = int(SLOW_CFG["max_hold_bars"])
 STOP_LOSS = D(SLOW_CFG["stop_loss"])
 TAKE_PROFIT = D(SLOW_CFG["take_profit"])
+MIN_PROJECTED_NET_RETURN = D(RISK_CFG["minimum_projected_net_return"])
 MAX_BODY = 2_000_000
 TIMEOUT = 8
 USER_AGENT = "crypto-paper-public-validation/1.0"
@@ -332,6 +333,16 @@ def sell(
     )
 
 
+def projected_net_return_at_take_profit(market: dict) -> Decimal:
+    buy_px = fill_price("buy", market)
+    entry_cost_per_unit = buy_px * (D("1") + FEE_RATE)
+    spread_ratio = market["bid"] / market["last"]
+    future_bid = market["last"] * (D("1") + TAKE_PROFIT) * spread_ratio
+    exit_px = future_bid * (D("1") - SLIPPAGE_RATE)
+    exit_net_per_unit = exit_px * (D("1") - FEE_RATE)
+    return (exit_net_per_unit / entry_cost_per_unit) - D("1")
+
+
 def buy(
     account: dict,
     symbol: str,
@@ -342,6 +353,8 @@ def buy(
         len(account["positions"]) >= MAX_POSITIONS
         or symbol in account["positions"]
     ):
+        return
+    if projected_net_return_at_take_profit(market) < MIN_PROJECTED_NET_RETURN:
         return
     cash = dec(account["cash"])
     budget = cash * TRADE_FRACTION
