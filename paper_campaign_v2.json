@@ -1,0 +1,72 @@
+{
+  "version": 2,
+  "paper_only": true,
+  "duration_days": 7,
+  "assets": [
+    "BTC",
+    "ETH",
+    "SOL",
+    "XRP",
+    "DOGE"
+  ],
+  "initial_state": {
+    "cash_yen_per_strategy": "10000",
+    "reserve_yen": "0",
+    "positions": {},
+    "realized_pnl_yen": "0",
+    "trades": []
+  },
+  "common_risk": {
+    "reserve_rate": "0.50",
+    "max_positions": 2,
+    "fee_rate_each_side": "0.0015",
+    "slippage_rate_each_side": "0.0005"
+  },
+  "slow_5m": {
+    "trade_fraction": "0.25",
+    "stop_loss": "0.012",
+    "take_profit": "0.018",
+    "max_hold_bars": 36,
+    "strategies": {
+      "A": {
+        "name": "momentum",
+        "entry": "close > SMA12 > SMA36 AND close > close[-4]",
+        "exit": "close < SMA12"
+      },
+      "B": {
+        "name": "breakout",
+        "entry": "close > highest_high(previous_20_bars)",
+        "exit": "close < SMA12"
+      },
+      "C": {
+        "name": "mean_reversion",
+        "entry": "zscore20 <= -1.5 AND SMA20 >= SMA50*0.985",
+        "exit": "zscore20 >= 0"
+      }
+    }
+  },
+  "fast_10s": {
+    "trade_fraction": "0.20",
+    "stop_loss": "0.008",
+    "take_profit": "0.012",
+    "max_hold_samples": 30,
+    "strategies": {
+      "A": {
+        "name": "fast_momentum",
+        "entry": "last > last[-6] > last[-18]",
+        "exit": "last < last[-6]"
+      },
+      "B": {
+        "name": "fast_breakout",
+        "entry": "last > max(previous_12_samples)",
+        "exit": "last < mean(last_6)"
+      },
+      "C": {
+        "name": "fast_mean_reversion",
+        "entry": "zscore20 <= -1.5 AND mean10 >= mean20*0.995",
+        "exit": "zscore20 >= 0"
+      }
+    }
+  },
+  "mutation_policy": "FROZEN_FOR_CAMPAIGN; any config hash mismatch => BLOCKED"
+}
