@@ -1,4 +1,5 @@
 import unittest, tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from decimal import Decimal as D
 import fast_paper_engine as m
@@ -16,5 +17,11 @@ class T(unittest.TestCase):
     def test_bad_state_blocks(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'s.json'; p.write_text('{}')
-            with self.assertRaises(m.EngineError): m.load_state(p)
+            now=datetime(2026,9,25,0,0,tzinfo=timezone.utc)
+            window={
+                "started_at":"2026-09-25T00:00:00Z",
+                "ends_at":"2026-09-25T06:00:00Z",
+            }
+            with self.assertRaises(m.EngineError):
+                m.load_state(p, now=now, window=window)
 if __name__=='__main__': unittest.main()
