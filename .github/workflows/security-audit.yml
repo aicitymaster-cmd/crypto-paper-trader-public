@@ -20,9 +20,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .paper_state
-          key: paper-state-v1-${{ github.run_id }}
+          key: paper-state-v2-${{ github.run_id }}
           restore-keys: |
-            paper-state-v1-
+            paper-state-v2-
 
       - name: Fetch exact public commit without credentials
         shell: bash
@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           python3 repo/fast_paper_engine.py \
             --samples .paper_state/fast_ticks.jsonl \
-            --state .paper_state/fast_engine.json \
+            --state .paper_state/fast_engine_v2.json \
             | tee fast-engine-summary.json
 
       - name: Run five-minute PAPER strategies
@@ -67,9 +67,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 repo/live_paper_cycle.py \
-            --state .paper_state/state.json \
-            --campaign-start 2026-09-25T08:50:00Z \
-            --campaign-end 2026-10-02T08:50:00Z \
+            --state .paper_state/state_v2.json \
+            --campaign-start 2026-09-25T09:30:00Z \
+            --campaign-end 2026-10-02T09:30:00Z \
             | tee paper-summary.json
 
       - name: Write run summary
