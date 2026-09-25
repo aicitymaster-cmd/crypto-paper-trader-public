@@ -11,9 +11,10 @@ This repository is PAPER-ONLY.
 
 ## GitHub Actions policy
 - workflows use no repository/org/environment secrets;
-- default token permissions are empty (`permissions: {}`) unless a reviewed workflow documents a narrower read-only need;
-- `pull_request`, `pull_request_target`, `issue_comment`, `repository_dispatch`, and `workflow_run` triggers are forbidden for this public PAPER repository;
-- third-party `uses:` actions are forbidden in the hardened baseline; jobs use the GitHub-hosted runner and fetch the exact public commit over HTTPS without credentials;
+- token permissions remain empty with `permissions: {}`;
+- `pull_request`, `pull_request_target`, `issue_comment`, `repository_dispatch`, and `workflow_run` triggers are forbidden;
+- the only external action allowed is GitHub-owned `actions/cache`, pinned to immutable commit `0057852bfaa89a56745cba8c7296529d2fc39830`;
+- the exact public commit is fetched over HTTPS without repository credentials;
 - no workflow may place orders or access an exchange account.
 
 ## Public-repository operating rule
