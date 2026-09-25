@@ -1,7 +1,6 @@
 {
   "version": 2,
   "paper_only": true,
-  "duration_days": 7,
   "assets": [
     "BTC",
     "ETH",
@@ -68,5 +67,6 @@
       }
     }
   },
-  "mutation_policy": "FROZEN_FOR_CAMPAIGN; any config hash mismatch => BLOCKED"
+  "mutation_policy": "FROZEN_FOR_CAMPAIGN; any config hash mismatch => BLOCKED",
+  "duration_hours": 6
 }
