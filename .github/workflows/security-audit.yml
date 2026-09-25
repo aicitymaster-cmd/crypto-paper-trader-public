@@ -20,9 +20,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .paper_state
-          key: paper-state-v3-${{ github.run_id }}
+          key: paper-state-v4-${{ github.run_id }}
           restore-keys: |
-            paper-state-v3-
+            paper-state-v4-
 
       - name: Fetch exact public commit without credentials
         shell: bash
@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           mkdir -p .paper_state
           python3 repo/campaign_window.py \
-            --state .paper_state/window_v3.json \
+            --state .paper_state/window_v4.json \
             --hours 6 \
             --github-output "$GITHUB_OUTPUT" \
             | tee campaign-window-summary.json
@@ -73,8 +73,8 @@ jobs:
           set -euo pipefail
           python3 repo/fast_paper_engine.py \
             --samples .paper_state/fast_ticks.jsonl \
-            --state .paper_state/fast_engine_v3.json \
-            --window .paper_state/window_v3.json \
+            --state .paper_state/fast_engine_v4.json \
+            --window .paper_state/window_v4.json \
             | tee fast-engine-summary.json
 
       - name: Run five-minute PAPER strategies
@@ -83,8 +83,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 repo/live_paper_cycle.py \
-            --state .paper_state/state_v3.json \
-            --window .paper_state/window_v3.json \
+            --state .paper_state/state_v4.json \
+            --window .paper_state/window_v4.json \
             | tee paper-summary.json
 
       - name: Write run summary
