@@ -127,10 +127,10 @@ def fetch_market(
     if min(ask, bid, last) <= 0 or bid > ask:
         raise PaperCycleError("BAD_TICKER")
 
-    local = now.astimezone(JST)
+    utc_now = now.astimezone(timezone.utc)
     days = [
-        (local - timedelta(days=1)).strftime("%Y%m%d"),
-        local.strftime("%Y%m%d"),
+        (utc_now - timedelta(days=1)).strftime("%Y%m%d"),
+        utc_now.strftime("%Y%m%d"),
     ]
     bars: list[tuple[int, Decimal, Decimal, Decimal, Decimal, Decimal]] = []
     for day in days:
