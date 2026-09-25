@@ -1,0 +1,30 @@
+name: security-audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+# Zero repository token permissions. This job needs no secrets and performs no writes.
+permissions: {}
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$REPOSITORY"
+          test -n "$COMMIT_SHA"
+          curl --fail --silent --show-error --location             --proto '=https' --tlsv1.2             --max-time 30 --max-filesize 20000000             "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz"             -o repo.tar.gz
+          mkdir repo
+          tar -xzf repo.tar.gz --strip-components=1 -C repo
+          cd repo
+          python3 security_guard.py .
+          python3 -m unittest discover -v
