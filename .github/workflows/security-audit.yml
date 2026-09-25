@@ -2,8 +2,6 @@ name: paper-validation
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
 
 permissions: {}
 
