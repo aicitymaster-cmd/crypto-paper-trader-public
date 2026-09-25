@@ -1,7 +1,7 @@
 """Replay 10-second ticker samples sequentially for PAPER-only strategy testing."""
 from __future__ import annotations
 import argparse, json, math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D, InvalidOperation, ROUND_DOWN
 from pathlib import Path
 from campaign_config import load_config, require_matching_hash, CampaignConfigError
@@ -35,7 +35,7 @@ def new_state():
 def load_state(path, *, now, window):
     if not path.exists():
         start=parse_time(window["started_at"])
-        if now > start + __import__("datetime").timedelta(minutes=30):
+        if now > start + timedelta(minutes=30):
             raise EngineError("STATE_MISSING_OUTSIDE_INIT_WINDOW")
         return new_state()
     try:s=json.loads(path.read_text())
