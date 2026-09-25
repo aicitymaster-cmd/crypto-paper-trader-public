@@ -12,7 +12,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 5
     steps:
       - name: Restore PAPER state cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -40,18 +40,53 @@ jobs:
           python3 security_guard.py .
           python3 -m unittest discover -q
 
-      - name: Run five-minute PAPER cycle
+      - name: Collect near-real-time public ticks
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p .paper_state
+          python3 repo/fast_paper_sampler.py \
+            --output .paper_state/fast_ticks.jsonl \
+            --interval 10 \
+            --duration 210 \
+            | tee fast-sampler-summary.json
+
+      - name: Replay ticks through fast PAPER strategies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/fast_paper_engine.py \
+            --samples .paper_state/fast_ticks.jsonl \
+            --state .paper_state/fast_engine.json \
+            | tee fast-engine-summary.json
+
+      - name: Run five-minute PAPER strategies
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 repo/live_paper_cycle.py \
             --state .paper_state/state.json \
             --campaign-start 2026-09-25T08:15:00Z \
             --campaign-end 2026-10-02T08:15:00Z \
             | tee paper-summary.json
+
+      - name: Write run summary
+        shell: bash
+        run: |
           {
             echo '## PAPER validation summary'
+            echo
+            echo '### Fast sampler'
+            echo '~~~json'
+            cat fast-sampler-summary.json
+            echo '~~~'
+            echo
+            echo '### Fast strategies'
+            echo '~~~json'
+            cat fast-engine-summary.json
+            echo '~~~'
+            echo
+            echo '### Five-minute strategies'
             echo '~~~json'
             cat paper-summary.json
             echo '~~~'
