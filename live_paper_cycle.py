@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 from campaign_config import load_config, require_matching_hash, CampaignConfigError
+from campaign_window import resolve_window, CampaignWindowError
 
 D = Decimal
 JST = ZoneInfo("Asia/Tokyo")
@@ -502,15 +503,22 @@ def summary(state: dict) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", required=True)
-    ap.add_argument("--campaign-start", required=True)
-    ap.add_argument("--campaign-end", required=True)
+    ap.add_argument("--window", required=True)
     args = ap.parse_args(argv)
 
     now = datetime.now(timezone.utc)
-    start = parse_utc(args.campaign_start)
-    end = parse_utc(args.campaign_end)
-    if end - start != timedelta(days=7):
-        raise PaperCycleError("CAMPAIGN_NOT_SEVEN_DAYS")
+    try:
+        window = resolve_window(
+            Path(args.window),
+            now=now,
+            hours=int(CFG["duration_hours"]),
+        )
+    except CampaignWindowError as exc:
+        raise PaperCycleError(str(exc)) from exc
+    start = parse_utc(window["started_at"])
+    end = parse_utc(window["ends_at"])
+    if end - start != timedelta(hours=int(CFG["duration_hours"])):
+        raise PaperCycleError("CAMPAIGN_LENGTH_MISMATCH")
 
     path = Path(args.state)
     path.parent.mkdir(parents=True, exist_ok=True)
