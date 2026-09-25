@@ -17,6 +17,7 @@ from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
+from campaign_config import load_config, require_matching_hash, CampaignConfigError
 
 D = Decimal
 JST = ZoneInfo("Asia/Tokyo")
@@ -27,16 +28,19 @@ ASSETS = {
     "XRP": "xrp_jpy",
     "DOGE": "doge_jpy",
 }
-STRATEGIES = ("momentum", "breakout", "mean_reversion")
-START_YEN = D("10000")
-TRADE_FRACTION = D("0.25")
-FEE_RATE = D("0.0015")
-SLIPPAGE_RATE = D("0.0005")
-RESERVE_RATE = D("0.50")
-MAX_POSITIONS = 2
-MAX_HOLD_BARS = 36
-STOP_LOSS = D("0.012")
-TAKE_PROFIT = D("0.018")
+CFG, CONFIG_SHA256 = load_config()
+SLOW_CFG = CFG["slow_5m"]
+RISK_CFG = CFG["common_risk"]
+STRATEGIES = tuple(v["name"] for v in SLOW_CFG["strategies"].values())
+START_YEN = D(CFG["initial_state"]["cash_yen_per_strategy"])
+TRADE_FRACTION = D(SLOW_CFG["trade_fraction"])
+FEE_RATE = D(RISK_CFG["fee_rate_each_side"])
+SLIPPAGE_RATE = D(RISK_CFG["slippage_rate_each_side"])
+RESERVE_RATE = D(RISK_CFG["reserve_rate"])
+MAX_POSITIONS = int(RISK_CFG["max_positions"])
+MAX_HOLD_BARS = int(SLOW_CFG["max_hold_bars"])
+STOP_LOSS = D(SLOW_CFG["stop_loss"])
+TAKE_PROFIT = D(SLOW_CFG["take_profit"])
 MAX_BODY = 2_000_000
 TIMEOUT = 8
 USER_AGENT = "crypto-paper-public-validation/1.0"
@@ -221,6 +225,7 @@ def new_state(start: datetime, end: datetime) -> dict:
     return {
         "version": 1,
         "paper_only": True,
+        "config_sha256": CONFIG_SHA256,
         "campaign_start": iso(start),
         "campaign_end": iso(end),
         "ended": False,
@@ -255,6 +260,10 @@ def load_or_init(
             raise PaperCycleError("STATE_UNREADABLE") from exc
         if state.get("paper_only") is not True or state.get("version") != 1:
             raise PaperCycleError("STATE_INVALID")
+        try:
+            require_matching_hash(state, CONFIG_SHA256)
+        except CampaignConfigError as exc:
+            raise PaperCycleError(str(exc)) from exc
         if (
             state.get("campaign_start") != iso(campaign_start)
             or state.get("campaign_end") != iso(campaign_end)
