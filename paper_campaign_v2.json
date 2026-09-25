@@ -19,7 +19,9 @@
     "reserve_rate": "0.50",
     "max_positions": 2,
     "fee_rate_each_side": "0.0015",
-    "slippage_rate_each_side": "0.0005"
+    "slippage_rate_each_side": "0.0005",
+    "minimum_projected_net_return": "0.003",
+    "entry_policy": "Only enter when projected take-profit exit remains at least 0.30% net positive after modeled spread, fees and slippage; otherwise skip."
   },
   "slow_5m": {
     "trade_fraction": "0.25",
