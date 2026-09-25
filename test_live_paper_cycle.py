@@ -93,6 +93,28 @@ class LivePaperCycleTests(unittest.TestCase):
             mk["bid"],
         )
 
+    def test_bitbank_candle_dates_use_utc_not_jst(self):
+        now = datetime(2026, 9, 25, 15, 36, tzinfo=timezone.utc)
+        seen = []
+
+        latest_start = int((now - timedelta(minutes=15)).timestamp() * 1000)
+        rows = []
+        for i in range(60):
+            ts = latest_start - (59 - i) * 300000
+            rows.append(["100", "101", "99", "100", "10", ts])
+
+        def getter(url):
+            seen.append(url)
+            if url.endswith("/ticker"):
+                return {"sell": "100.1", "buy": "99.9", "last": "100"}
+            return {"candlestick": [{"ohlcv": rows}]}
+
+        m.fetch_market("BTC", now=now, getter=getter)
+        candle_urls = [u for u in seen if "/candlestick/" in u]
+        self.assertTrue(any(u.endswith("/20260925") for u in candle_urls))
+        self.assertTrue(any(u.endswith("/20260924") for u in candle_urls))
+        self.assertFalse(any(u.endswith("/20260926") for u in candle_urls))
+
 
 if __name__ == "__main__":
     unittest.main()
