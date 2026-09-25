@@ -4,10 +4,15 @@ import argparse, json, math
 from datetime import datetime, timezone
 from decimal import Decimal as D, InvalidOperation, ROUND_DOWN
 from pathlib import Path
+from campaign_config import load_config, require_matching_hash, CampaignConfigError
 
-STRATEGIES=("fast_momentum","fast_breakout","fast_mean_reversion")
-START=D("10000"); FEE=D("0.0015"); SLIP=D("0.0005"); FRACTION=D("0.20")
-MAX_POS=2; STOP=D("0.008"); TAKE=D("0.012"); MAX_HOLD=30
+CFG, CONFIG_SHA256 = load_config()
+FAST_CFG = CFG["fast_10s"]
+RISK_CFG = CFG["common_risk"]
+STRATEGIES=tuple(v["name"] for v in FAST_CFG["strategies"].values())
+START=D(CFG["initial_state"]["cash_yen_per_strategy"])
+FEE=D(RISK_CFG["fee_rate_each_side"]); SLIP=D(RISK_CFG["slippage_rate_each_side"]); FRACTION=D(FAST_CFG["trade_fraction"])
+MAX_POS=int(RISK_CFG["max_positions"]); STOP=D(FAST_CFG["stop_loss"]); TAKE=D(FAST_CFG["take_profit"]); MAX_HOLD=int(FAST_CFG["max_hold_samples"])
 
 class EngineError(RuntimeError): pass
 
@@ -24,13 +29,15 @@ def parse_time(s):
     return d.astimezone(timezone.utc)
 
 def new_state():
-    return {"paper_only":True,"version":1,"last_processed_at":None,"hist":{},"accounts":{s:{"cash":"10000","reserve":"0","positions":{},"trades":[]} for s in STRATEGIES}}
+    return {"paper_only":True,"version":1,"config_sha256":CONFIG_SHA256,"last_processed_at":None,"hist":{},"accounts":{s:{"cash":"10000","reserve":"0","positions":{},"trades":[]} for s in STRATEGIES}}
 
 def load_state(path):
     if not path.exists(): return new_state()
     try:s=json.loads(path.read_text())
     except Exception as e: raise EngineError("STATE_UNREADABLE") from e
     if s.get("paper_only") is not True or s.get("version")!=1: raise EngineError("STATE_INVALID")
+    try: require_matching_hash(s, CONFIG_SHA256)
+    except CampaignConfigError as e: raise EngineError(str(e)) from e
     return s
 
 def z(vals):
