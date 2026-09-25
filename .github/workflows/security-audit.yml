@@ -20,9 +20,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .paper_state
-          key: paper-state-v2-${{ github.run_id }}
+          key: paper-state-v3-${{ github.run_id }}
           restore-keys: |
-            paper-state-v2-
+            paper-state-v3-
 
       - name: Fetch exact public commit without credentials
         shell: bash
@@ -42,7 +42,20 @@ jobs:
           python3 security_guard.py .
           python3 -m unittest discover -q
 
+      - name: Resolve six-hour campaign window
+        id: window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .paper_state
+          python3 repo/campaign_window.py \
+            --state .paper_state/window_v3.json \
+            --hours 6 \
+            --github-output "$GITHUB_OUTPUT" \
+            | tee campaign-window-summary.json
+
       - name: Collect near-real-time public ticks
+        if: steps.window.outputs.active == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -54,22 +67,24 @@ jobs:
             | tee fast-sampler-summary.json
 
       - name: Replay ticks through fast PAPER strategies
+        if: steps.window.outputs.active == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python3 repo/fast_paper_engine.py \
             --samples .paper_state/fast_ticks.jsonl \
-            --state .paper_state/fast_engine_v2.json \
+            --state .paper_state/fast_engine_v3.json \
+            --window .paper_state/window_v3.json \
             | tee fast-engine-summary.json
 
       - name: Run five-minute PAPER strategies
+        if: steps.window.outputs.active == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python3 repo/live_paper_cycle.py \
-            --state .paper_state/state_v2.json \
-            --campaign-start 2026-09-25T09:30:00Z \
-            --campaign-end 2026-10-02T09:30:00Z \
+            --state .paper_state/state_v3.json \
+            --window .paper_state/window_v3.json \
             | tee paper-summary.json
 
       - name: Write run summary
@@ -78,18 +93,23 @@ jobs:
           {
             echo '## PAPER validation summary'
             echo
+            echo '### Campaign window'
+            echo '~~~json'
+            cat campaign-window-summary.json
+            echo '~~~'
+            echo
             echo '### Fast sampler'
             echo '~~~json'
-            cat fast-sampler-summary.json
+            if [ -f fast-sampler-summary.json ]; then cat fast-sampler-summary.json; else echo '{"status":"SKIPPED_AFTER_END"}'; fi
             echo '~~~'
             echo
             echo '### Fast strategies'
             echo '~~~json'
-            cat fast-engine-summary.json
+            if [ -f fast-engine-summary.json ]; then cat fast-engine-summary.json; else echo '{"status":"SKIPPED_AFTER_END"}'; fi
             echo '~~~'
             echo
             echo '### Five-minute strategies'
             echo '~~~json'
-            cat paper-summary.json
+            if [ -f paper-summary.json ]; then cat paper-summary.json; else echo '{"status":"SKIPPED_AFTER_END"}'; fi
             echo '~~~'
           } >> "$GITHUB_STEP_SUMMARY"
