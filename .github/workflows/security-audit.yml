@@ -2,6 +2,8 @@ name: paper-validation
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
 
 permissions: {}
 
@@ -66,8 +68,8 @@ jobs:
           set -euo pipefail
           python3 repo/live_paper_cycle.py \
             --state .paper_state/state.json \
-            --campaign-start 2026-09-25T08:15:00Z \
-            --campaign-end 2026-10-02T08:15:00Z \
+            --campaign-start 2026-09-25T08:50:00Z \
+            --campaign-end 2026-10-02T08:50:00Z \
             | tee paper-summary.json
 
       - name: Write run summary
