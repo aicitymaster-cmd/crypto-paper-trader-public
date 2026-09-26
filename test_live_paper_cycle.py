@@ -115,6 +115,52 @@ class LivePaperCycleTests(unittest.TestCase):
         self.assertTrue(any(u.endswith("/20260924") for u in candle_urls))
         self.assertFalse(any(u.endswith("/20260926") for u in candle_urls))
 
+    def test_campaign_end_liquidates_open_positions_once(self):
+        state = m.new_state(self.now, self.now + timedelta(hours=2))
+        account = state["strategies"]["mean_reversion"]
+        account["cash"] = "9000"
+        account["positions"]["BTC"] = {
+            "qty": "10",
+            "entry_price": "100",
+            "cost_basis": "1000",
+            "entry_at": m.iso(self.now),
+            "entry_bar": 0,
+        }
+        market = self.market()
+        m.finalize_campaign(state, {"BTC": market}, now=self.now)
+
+        self.assertTrue(state["ended"])
+        self.assertEqual(account["positions"], {})
+        sells = [t for t in account["trades"] if t["side"] == "sell"]
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0]["reason"], "CAMPAIGN_END")
+        first_cash = account["cash"]
+
+        m.finalize_campaign(state, {"BTC": market}, now=self.now + timedelta(minutes=5))
+        self.assertEqual(account["cash"], first_cash)
+        self.assertEqual(
+            len([t for t in account["trades"] if t["side"] == "sell"]),
+            1,
+        )
+
+    def test_campaign_end_requires_price_for_every_open_position(self):
+        state = m.new_state(self.now, self.now + timedelta(hours=2))
+        account = state["strategies"]["mean_reversion"]
+        account["positions"]["BTC"] = {
+            "qty": "1",
+            "entry_price": "100",
+            "cost_basis": "100",
+            "entry_at": m.iso(self.now),
+            "entry_bar": 0,
+        }
+        with self.assertRaisesRegex(
+            m.PaperCycleError,
+            "FINALIZATION_MARKET_MISSING:BTC",
+        ):
+            m.finalize_campaign(state, {}, now=self.now)
+        self.assertFalse(state["ended"])
+        self.assertIn("BTC", account["positions"])
+
 
 if __name__ == "__main__":
     unittest.main()
