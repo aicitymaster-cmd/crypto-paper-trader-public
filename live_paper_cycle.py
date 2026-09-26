@@ -113,6 +113,27 @@ def public_get_json(url: str) -> dict:
     return obj["data"]
 
 
+def fetch_ticker_market(
+    symbol: str,
+    *,
+    getter: Callable[[str], dict] = public_get_json,
+) -> dict:
+    pair = ASSETS[symbol]
+    ticker = getter(f"https://public.bitbank.cc/{pair}/ticker")
+    ask = dec(ticker.get("sell"))
+    bid = dec(ticker.get("buy"))
+    last = dec(ticker.get("last"))
+    if min(ask, bid, last) <= 0 or bid > ask:
+        raise PaperCycleError("BAD_TICKER")
+    return {
+        "symbol": symbol,
+        "pair": pair,
+        "bid": bid,
+        "ask": ask,
+        "last": last,
+    }
+
+
 def fetch_market(
     symbol: str,
     *,
@@ -333,6 +354,38 @@ def sell(
     )
 
 
+def finalize_campaign(
+    state: dict,
+    markets: dict[str, dict],
+    *,
+    now: datetime,
+) -> dict:
+    if state.get("ended"):
+        return state
+
+    required = {
+        symbol
+        for account in state["strategies"].values()
+        for symbol in account["positions"]
+    }
+    missing = sorted(required - set(markets))
+    if missing:
+        raise PaperCycleError(
+            "FINALIZATION_MARKET_MISSING:" + ",".join(missing)
+        )
+
+    prices = {symbol: market["last"] for symbol, market in markets.items()}
+    for account in state["strategies"].values():
+        for symbol in list(account["positions"]):
+            sell(account, symbol, markets[symbol], now, "CAMPAIGN_END")
+        account["equity"] = str(equity(account, prices))
+
+    state["ended"] = True
+    state["finalized_at"] = iso(now)
+    state["last_cycle"] = iso(now)
+    return state
+
+
 def projected_net_return_at_take_profit(market: dict) -> Decimal:
     buy_px = fill_price("buy", market)
     entry_cost_per_unit = buy_px * (D("1") + FEE_RATE)
@@ -484,6 +537,7 @@ def summary(state: dict) -> dict:
         "campaign_start": state["campaign_start"],
         "campaign_end": state["campaign_end"],
         "ended": state["ended"],
+        "finalized_at": state.get("finalized_at"),
         "cycles": state["cycles"],
         "strategies": {},
     }
@@ -555,8 +609,35 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if state.get("ended") or now >= end:
-        state["ended"] = True
+    if state.get("ended"):
+        path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(summary(state), ensure_ascii=False))
+        return 0
+
+    if now >= end:
+        required = {
+            symbol
+            for account in state["strategies"].values()
+            for symbol in account["positions"]
+        }
+        final_markets = {}
+        final_errors = {}
+        for symbol in sorted(required):
+            try:
+                final_markets[symbol] = fetch_ticker_market(symbol)
+            except PaperCycleError as exc:
+                final_errors[symbol] = str(exc)
+
+        if final_errors:
+            raise PaperCycleError(
+                "FINALIZATION_MARKET_MISSING:"
+                + ",".join(sorted(final_errors))
+            )
+
+        state = finalize_campaign(state, final_markets, now=now)
         path.write_text(
             json.dumps(state, ensure_ascii=False, indent=2),
             encoding="utf-8",
