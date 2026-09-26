@@ -48,7 +48,7 @@ def profile_grid():
         out[f"f{i:03d}"]={
           "fraction":D("0.95"),"take":take,"stop":stop,"trail":trail,
           "cooldown":cooldown,"max_hold":max_hold,
-          "mom12":D("0.008"),"mom36":D("0.015"),"breadth":D("0.50"),
+          "mom12":mom12,"mom36":mom36,"breadth":breadth,"min_vr":min_vr,
           "loss_limit":D("0.10"),"pause_after_losses":2,"pause_bars":36
         }
     return out
@@ -81,7 +81,7 @@ def score_candidate(h,p):
     volavg=sum(vols[-12:-1],D(0))/D(11)
     vr=vols[-1]/volavg if volavg>0 else D(0)
     one=c/closes[-2]-D(1)
-    if not trend or m12<p["mom12"] or m36<p["mom36"] or vr<D("1.05") or one>D("0.12"):
+    if not trend or m12<p["mom12"] or m36<p["mom36"] or vr<p["min_vr"] or one>D("0.12"):
         return None
     return m12*D("2")+m36+min(vr,D("3"))/D("25")
 
@@ -191,7 +191,7 @@ def main():
           "profile":name,
           "settings":{"take_profit":str(p["take"]),"stop_loss":str(p["stop"]),
                       "trail":str(p["trail"]),"cooldown_bars":p["cooldown"],
-                      "max_hold_bars":p["max_hold"]},
+                      "max_hold_bars":p["max_hold"],"mom12":str(p["mom12"]),"mom36":str(p["mom36"]),"breadth":str(p["breadth"]),"min_volume_ratio":str(p["min_vr"])},
           "validation_all_nonnegative":nonneg,
           "validation_avg_return_pct":round(statistics.mean(vals),3),
           "validation_median_return_pct":round(statistics.median(vals),3),
@@ -204,7 +204,7 @@ def main():
     robust=[x for x in candidates if x["validation_all_nonnegative"]]
     ranked=sorted(candidates,key=lambda x:(x["validation_all_nonnegative"],x["validation_target_hits"],x["validation_median_return_pct"],x["validation_worst_return_pct"]),reverse=True)
     result={
-      "paper_only":True,"stage":"expanded_30min_high_return",
+      "paper_only":True,"stage":"momentum_focus_30min_high_return",
       "goal":{"start_yen":10000,"target_yen":200000,"days":7},
       "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
       "pairs":PAIRS,"profiles_tested":len(PROFILES),"total_7day_runs":len(PROFILES)*8,
