@@ -1,4 +1,4 @@
-"""Focused 5-minute high-return spot-only PAPER search.
+"""Focused 15min high-return spot-only PAPER search.
 
 Target under test: JPY 10,000 -> JPY 200,000 in seven days.
 Uses symbols that repeatedly contributed to prior profitable 4-hour searches.
@@ -28,7 +28,7 @@ def get_json(url):
 
 def fetch_day(pair,day):
     try:
-        rows=get_json(f"https://public.bitbank.cc/{pair}/candlestick/5min/{day:%Y%m%d}")["candlestick"][0]["ohlcv"]
+        rows=get_json(f"https://public.bitbank.cc/{pair}/candlestick/15min/{day:%Y%m%d}")["candlestick"][0]["ohlcv"]
         return [(int(ts),D(o),D(h),D(l),D(c),D(v)) for o,h,l,c,v,ts in rows]
     except Exception:
         return []
@@ -88,7 +88,7 @@ def score_candidate(h,p):
 def buy(a,sym,close,ts,index,p):
     if a["positions"] or index<a["pause_until"]:return
     last=a["last_exit"].get(sym)
-    if last is not None and ts-last<p["cooldown"]*5*60*1000:return
+    if last is not None and ts-last<p["cooldown"]*15*60*1000:return
     px=close*(D(1)+SLIP); budget=a["cash"]*p["fraction"]
     qty=(budget/(px*(D(1)+FEE))).quantize(D("0.00000001"),rounding=ROUND_DOWN)
     if qty<=0:return
@@ -204,7 +204,7 @@ def main():
     robust=[x for x in candidates if x["validation_all_nonnegative"]]
     ranked=sorted(candidates,key=lambda x:(x["validation_all_nonnegative"],x["validation_target_hits"],x["validation_median_return_pct"],x["validation_worst_return_pct"]),reverse=True)
     result={
-      "paper_only":True,"stage":"focused_5m_high_return",
+      "paper_only":True,"stage":"focused_15min_high_return",
       "goal":{"start_yen":10000,"target_yen":200000,"days":7},
       "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
       "pairs":PAIRS,"profiles_tested":len(PROFILES),"total_7day_runs":len(PROFILES)*8,
