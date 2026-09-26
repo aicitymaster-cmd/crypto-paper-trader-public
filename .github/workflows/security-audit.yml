@@ -77,8 +77,8 @@ jobs:
             --window .paper_state/window_v5.json \
             | tee fast-engine-summary.json
 
-      - name: Run five-minute PAPER strategies
-        if: steps.window.outputs.active == 'true'
+      - name: Run or finalize five-minute PAPER strategies
+        if: steps.window.outputs.active == 'true' || steps.window.outputs.status == 'ENDED'
         shell: bash
         run: |
           set -euo pipefail
