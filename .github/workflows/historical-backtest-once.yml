@@ -3,7 +3,7 @@ name: historical-backtest-once
 on:
   push:
     branches:
-      - historical-backtest-30m-expanded
+      - historical-backtest-30m-expanded-b
 
 permissions: {}
 
