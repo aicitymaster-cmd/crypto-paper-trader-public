@@ -8,38 +8,38 @@ from unittest.mock import patch
 import campaign_window
 
 
-class SixHourCampaignWindowTests(unittest.TestCase):
-    def test_first_run_sets_exact_six_hour_window(self):
+class TwoHourCampaignWindowTests(unittest.TestCase):
+    def test_first_run_sets_exact_two_hour_window(self):
         now = datetime(2026, 9, 25, 10, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "window.json"
-            result = campaign_window.resolve_window(p, now=now, hours=6)
+            result = campaign_window.resolve_window(p, now=now, hours=2)
             self.assertTrue(result["active"])
             self.assertFalse(result["ended"])
             self.assertEqual(
                 campaign_window.parse_utc(result["ends_at"])
                 - campaign_window.parse_utc(result["started_at"]),
-                timedelta(hours=6),
+                timedelta(hours=2),
             )
 
     def test_existing_window_does_not_restart(self):
         start = datetime(2026, 9, 25, 10, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "window.json"
-            first = campaign_window.resolve_window(p, now=start, hours=6)
+            first = campaign_window.resolve_window(p, now=start, hours=2)
             later = campaign_window.resolve_window(
-                p, now=start + timedelta(hours=2), hours=6
+                p, now=start + timedelta(hours=2), hours=2
             )
             self.assertEqual(first["started_at"], later["started_at"])
             self.assertEqual(first["ends_at"], later["ends_at"])
 
-    def test_after_six_hours_is_ended(self):
+    def test_after_two_hours_is_ended(self):
         start = datetime(2026, 9, 25, 10, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "window.json"
-            campaign_window.resolve_window(p, now=start, hours=6)
+            campaign_window.resolve_window(p, now=start, hours=2)
             ended = campaign_window.resolve_window(
-                p, now=start + timedelta(hours=6), hours=6
+                p, now=start + timedelta(hours=2), hours=2
             )
             self.assertFalse(ended["active"])
             self.assertTrue(ended["ended"])
