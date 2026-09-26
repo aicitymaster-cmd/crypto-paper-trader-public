@@ -16,7 +16,7 @@ CFG=json.loads(Path(__file__).with_name("paper_campaign_v2.json").read_text())
 RISK=CFG["common_risk"]
 START=D("10000"); TARGET=D("200000")
 FEE=D(RISK["fee_rate_each_side"]); SLIP=D(RISK["slippage_rate_each_side"])
-PAIRS=["arb_jpy","grt_jpy","gala_jpy","avax_jpy","op_jpy","sui_jpy","xym_jpy","chz_jpy","btc_jpy","eth_jpy","xrp_jpy","ltc_jpy","bcc_jpy","mona_jpy","xlm_jpy","qtum_jpy","bat_jpy","omg_jpy","dot_jpy","link_jpy","matic_jpy","doge_jpy","sol_jpy","ada_jpy"]
+PAIRS=["arb_jpy","grt_jpy","gala_jpy","avax_jpy","op_jpy","sui_jpy","xym_jpy","chz_jpy","btc_jpy","eth_jpy","xrp_jpy","ltc_jpy"]
 UA="crypto-paper-focused-5m-search/1.0"
 
 def get_json(url):
