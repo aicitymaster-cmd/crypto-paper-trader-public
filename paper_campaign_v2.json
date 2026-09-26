@@ -70,5 +70,5 @@
     }
   },
   "mutation_policy": "FROZEN_FOR_CAMPAIGN; any config hash mismatch => BLOCKED",
-  "duration_hours": 6
+  "duration_hours": 2
 }
