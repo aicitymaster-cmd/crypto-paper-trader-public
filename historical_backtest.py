@@ -36,18 +36,19 @@ def fetch_day(pair,day):
 def sma(xs,n): return sum(xs[-n:],D(0))/D(n)
 
 def profile_grid():
+    # Keep f790 entry logic fixed; vary exits only.
     out={}; i=0
-    for breakout_lookback,breakout_buffer in product(
-        (0,12,24,48),
-        (D("0"),D("0.002"),D("0.005")),
+    for take,trail,max_hold in product(
+        (D("0.12"),D("0.18"),D("0.25"),D("0.35"),D("0.50")),
+        (D("0.015"),D("0.025"),D("0.040"),D("0.060")),
+        (48,72,96,144),
     ):
-        if breakout_lookback==0 and breakout_buffer!=D("0"): continue
         i+=1
-        out[f"b{i:02d}"]={
-          "fraction":D("0.95"),"take":D("0.18"),"stop":D("0.030"),"trail":D("0.025"),
-          "cooldown":36,"max_hold":72,
+        out[f"e{i:03d}"]={
+          "fraction":D("0.95"),"take":take,"stop":D("0.030"),"trail":trail,
+          "cooldown":36,"max_hold":max_hold,
           "mom12":D("0.025"),"mom36":D("0.050"),"breadth":D("0.50"),"min_vr":D("1.30"),
-          "breakout_lookback":breakout_lookback,"breakout_buffer":breakout_buffer,
+          "breakout_lookback":0,"breakout_buffer":D("0"),
           "loss_limit":D("0.10"),"pause_after_losses":2,"pause_bars":36
         }
     return out
@@ -203,7 +204,7 @@ def main():
     robust=[x for x in candidates if x["validation_all_nonnegative"]]
     ranked=sorted(candidates,key=lambda x:(x["validation_all_nonnegative"],x["validation_target_hits"],x["validation_median_return_pct"],x["validation_worst_return_pct"]),reverse=True)
     result={
-      "paper_only":True,"stage":"f790_breakout_30min",
+      "paper_only":True,"stage":"f790_exit_search_30min",
       "goal":{"start_yen":10000,"target_yen":200000,"days":7},
       "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
       "pairs":PAIRS,"profiles_tested":len(PROFILES),"total_7day_runs":len(PROFILES)*8,
