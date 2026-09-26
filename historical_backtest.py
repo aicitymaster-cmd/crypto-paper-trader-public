@@ -16,7 +16,7 @@ CFG=json.loads(Path(__file__).with_name("paper_campaign_v2.json").read_text())
 RISK=CFG["common_risk"]
 START=D("10000"); TARGET=D("200000")
 FEE=D(RISK["fee_rate_each_side"]); SLIP=D(RISK["slippage_rate_each_side"])
-PAIRS=["arb_jpy","grt_jpy","gala_jpy","avax_jpy","op_jpy","sui_jpy","xym_jpy","chz_jpy"]
+PAIRS=["arb_jpy","grt_jpy","gala_jpy","avax_jpy","op_jpy","sui_jpy","xym_jpy","chz_jpy","btc_jpy","eth_jpy","xrp_jpy","ltc_jpy","bcc_jpy","mona_jpy","xlm_jpy","qtum_jpy","bat_jpy","omg_jpy","dot_jpy","link_jpy","matic_jpy","doge_jpy","sol_jpy","ada_jpy"]
 UA="crypto-paper-focused-5m-search/1.0"
 
 def get_json(url):
@@ -38,9 +38,9 @@ def sma(xs,n): return sum(xs[-n:],D(0))/D(n)
 def profile_grid():
     out={}; i=0
     for take,stop,trail,cooldown,max_hold in product(
-        (D("0.03"),D("0.05"),D("0.08")),
-        (D("0.008"),D("0.012"),D("0.020")),
-        (D("0.015"),D("0.025")),
+        (D("0.05"),D("0.08"),D("0.12"),D("0.18")),
+        (D("0.008"),D("0.012"),D("0.020"),D("0.030")),
+        (D("0.015"),D("0.025"),D("0.040")),
         (12,36),
         (72,144),
     ):
@@ -204,7 +204,7 @@ def main():
     robust=[x for x in candidates if x["validation_all_nonnegative"]]
     ranked=sorted(candidates,key=lambda x:(x["validation_all_nonnegative"],x["validation_target_hits"],x["validation_median_return_pct"],x["validation_worst_return_pct"]),reverse=True)
     result={
-      "paper_only":True,"stage":"focused_30min_high_return",
+      "paper_only":True,"stage":"expanded_30min_high_return",
       "goal":{"start_yen":10000,"target_yen":200000,"days":7},
       "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
       "pairs":PAIRS,"profiles_tested":len(PROFILES),"total_7day_runs":len(PROFILES)*8,
