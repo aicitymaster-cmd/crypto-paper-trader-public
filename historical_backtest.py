@@ -46,7 +46,7 @@ def profile_grid():
     ):
         i+=1
         out[f"f{i:03d}"]={
-          "fraction":D("0.95"),"take":take,"stop":stop,"trail":trail,
+          "fraction":D("0.32"),"take":take,"stop":stop,"trail":trail,"max_positions":3,
           "cooldown":cooldown,"max_hold":max_hold,
           "mom12":D("0.008"),"mom36":D("0.015"),"breadth":D("0.50"),
           "loss_limit":D("0.10"),"pause_after_losses":2,"pause_bars":36
@@ -86,7 +86,7 @@ def score_candidate(h,p):
     return m12*D("2")+m36+min(vr,D("3"))/D("25")
 
 def buy(a,sym,close,ts,index,p):
-    if a["positions"] or index<a["pause_until"]:return
+    if len(a["positions"])>=p["max_positions"] or sym in a["positions"] or index<a["pause_until"]:return
     last=a["last_exit"].get(sym)
     if last is not None and ts-last<p["cooldown"]*30*60*1000:return
     px=close*(D(1)+SLIP); budget=a["cash"]*p["fraction"]
@@ -143,7 +143,7 @@ def run_window(start_day,bars_by_pair,p):
         if eq<=START*(D(1)-p["loss_limit"]):
             continue
 
-        if not a["positions"] and index>=a["pause_until"] and market_breadth(hist)>=p["breadth"]:
+        if len(a["positions"])<p["max_positions"] and index>=a["pause_until"] and market_breadth(hist)>=p["breadth"]:
             candidates=[]
             for sym in row:
                 sc=score_candidate(hist[sym],p)
@@ -191,7 +191,7 @@ def main():
           "profile":name,
           "settings":{"take_profit":str(p["take"]),"stop_loss":str(p["stop"]),
                       "trail":str(p["trail"]),"cooldown_bars":p["cooldown"],
-                      "max_hold_bars":p["max_hold"]},
+                      "max_hold_bars":p["max_hold"],"max_positions":p["max_positions"],"fraction_per_position":str(p["fraction"])},
           "validation_all_nonnegative":nonneg,
           "validation_avg_return_pct":round(statistics.mean(vals),3),
           "validation_median_return_pct":round(statistics.median(vals),3),
@@ -204,7 +204,7 @@ def main():
     robust=[x for x in candidates if x["validation_all_nonnegative"]]
     ranked=sorted(candidates,key=lambda x:(x["validation_all_nonnegative"],x["validation_target_hits"],x["validation_median_return_pct"],x["validation_worst_return_pct"]),reverse=True)
     result={
-      "paper_only":True,"stage":"expanded_30min_high_return",
+      "paper_only":True,"stage":"multi_position_30min_high_return",
       "goal":{"start_yen":10000,"target_yen":200000,"days":7},
       "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
       "pairs":PAIRS,"profiles_tested":len(PROFILES),"total_7day_runs":len(PROFILES)*8,
