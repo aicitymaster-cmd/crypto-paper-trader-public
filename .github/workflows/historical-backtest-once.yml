@@ -1,0 +1,45 @@
+name: historical-backtest-once
+
+on:
+  push:
+    branches:
+      - historical-backtest-3-10-30
+
+permissions: {}
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location             --proto '=https' --tlsv1.2             --max-time 30 --max-filesize 20000000             "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz"             -o repo.tar.gz
+          mkdir repo
+          tar -xzf repo.tar.gz --strip-components=1 -C repo
+          cd repo
+          python3 security_guard.py .
+          python3 -m unittest discover -q
+
+      - name: Run historical 3 10 30 day PAPER backtest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd repo
+          python3 historical_backtest.py | tee historical-backtest-results.json
+
+      - name: Write summary
+        shell: bash
+        run: |
+          {
+            echo '## Historical PAPER backtest'
+            echo
+            echo '~~~json'
+            cat repo/historical-backtest-results.json
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
