@@ -87,7 +87,8 @@ STRATEGIES=("momentum","breakout","mean_reversion")
 
 def new_account():
     return {"cash":START,"reserve":D(0),"positions":{},"last_exit":{},
-            "fees":D(0),"sells":0,"wins":0,"peak":START,"max_dd":D(0)}
+            "fees":D(0),"sells":0,"wins":0,"peak":START,"max_dd":D(0),
+            "symbols_used":[]}
 
 def equity(a,prices):
     return a["cash"]+a["reserve"]+sum(pos["qty"]*prices[s] for s,pos in a["positions"].items() if s in prices)
@@ -103,6 +104,7 @@ def buy(a,sym,close,ts,p):
     if cost>a["cash"]:return
     a["cash"]-=cost; a["fees"]+=fee
     a["positions"][sym]={"qty":qty,"entry":px,"cost":cost,"entry_ts":ts}
+    if sym not in a["symbols_used"]: a["symbols_used"].append(sym)
 
 def sell(a,sym,close,ts):
     pos=a["positions"].pop(sym); px=close*(D(1)-SLIP)
@@ -149,7 +151,8 @@ def run_window(start_day,bars_by_pair,p,strategy):
     final=a["cash"]+a["reserve"]
     return {"final_yen":float(final),"return_pct":float((final/START-D(1))*100),
             "closed_trades":a["sells"],"wins":a["wins"],"fees_yen":float(a["fees"]),
-            "max_drawdown_pct":float(a["max_dd"]*100),"hit_200k":final>=TARGET}
+            "max_drawdown_pct":float(a["max_dd"]*100),"hit_200k":final>=TARGET,
+            "symbols_used":sorted(a["symbols_used"])}
 
 def main():
     now=datetime.now(timezone.utc); end_day=(now-timedelta(days=1)).date()
