@@ -3,7 +3,7 @@ name: historical-backtest-once
 on:
   push:
     branches:
-      - historical-backtest-30m-expanded-a
+      - historical-backtest-30m-momentum-focus
 
 permissions: {}
 
