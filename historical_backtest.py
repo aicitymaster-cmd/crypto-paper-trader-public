@@ -17,7 +17,7 @@ RISK=CFG["common_risk"]
 START=D(CFG["initial_state"]["cash_yen_per_strategy"])
 TARGET=D("200000")
 FEE=D(RISK["fee_rate_each_side"]); SLIP=D(RISK["slippage_rate_each_side"])
-RESERVE_RATE=D(RISK["reserve_rate"])
+RESERVE_RATE=D("0")
 UA="crypto-paper-expanded-universe/1.0"
 
 def get_json(url):
@@ -198,7 +198,7 @@ def main():
       "total_7day_runs":len(candidates)*8,"target_hits_all_runs":target_hits,
       "best_single_7day_run":best,"top_validation_candidates":ranked[:10],
       "historical_spread_available":False,
-      "modeled_costs":{"fee_each_side":str(FEE),"slippage_each_side":str(SLIP)}
+      "modeled_costs":{"fee_each_side":str(FEE),"slippage_each_side":str(SLIP),"reserve_rate":"0"}
     }
     print(json.dumps(result,ensure_ascii=False))
     Path("historical-backtest-results.json").write_text(json.dumps(result,ensure_ascii=False,indent=2))
