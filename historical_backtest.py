@@ -37,12 +37,16 @@ def sma(xs,n): return sum(xs[-n:],D(0))/D(n)
 
 def profile_grid():
     out={}; i=0
-    for take,stop,trail,cooldown,max_hold in product(
-        (D("0.05"),D("0.08"),D("0.12"),D("0.18")),
-        (D("0.008"),D("0.012"),D("0.020"),D("0.030")),
-        (D("0.015"),D("0.025"),D("0.040")),
+    for take,stop,trail,cooldown,max_hold,mom12,mom36,breadth,min_vr in product(
+        (D("0.08"),D("0.12"),D("0.18")),
+        (D("0.020"),D("0.030")),
+        (D("0.025"),D("0.040")),
         (12,36),
-        (72,144),
+        (72,),
+        (D("0.008"),D("0.015"),D("0.025")),
+        (D("0.015"),D("0.030"),D("0.050")),
+        (D("0.50"),D("0.65")),
+        (D("1.05"),D("1.30")),
     ):
         i+=1
         out[f"f{i:03d}"]={
