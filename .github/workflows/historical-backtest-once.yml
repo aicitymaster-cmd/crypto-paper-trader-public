@@ -3,7 +3,7 @@ name: historical-backtest-once
 on:
   push:
     branches:
-      - historical-backtest-30m-f790-breakout
+      - historical-backtest-30m-f790-exits
 
 permissions: {}
 
