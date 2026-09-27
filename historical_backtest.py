@@ -156,7 +156,7 @@ def run_window(start_day,bars_by_pair,p,days=7):
             "profitable":final>=START,"symbols_used":sorted(a["symbols_used"])}
 
 def main():
-    end_day=(datetime.now(timezone.utc)-timedelta(days=1)).date()
+    end_day=(datetime.now(timezone.utc)-timedelta(days=31)).date()
     first=end_day-timedelta(days=29)
     bars={s:[] for s in PAIRS}
     d=first
