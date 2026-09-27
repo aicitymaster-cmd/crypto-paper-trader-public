@@ -157,7 +157,9 @@ def run_window(start_day,bars_by_pair,p,days=7):
 
 def main():
     end_day=(datetime.now(timezone.utc)-timedelta(days=1)).date()
-    first=end_day-timedelta(days=29)
+    # Four non-overlapping 30-day periods; parameters remain fixed.
+    starts=[end_day-timedelta(days=119),end_day-timedelta(days=89),end_day-timedelta(days=59),end_day-timedelta(days=29)]
+    first=starts[0]
     bars={s:[] for s in PAIRS}
     d=first
     while d<=end_day:
@@ -168,17 +170,25 @@ def main():
         d+=timedelta(days=1)
 
     p=PROFILES["e038_30d"]
-    r=run_window(first,bars,p,days=30)
+    periods=[]
+    for s in starts:
+        r=run_window(s,bars,p,days=30)
+        periods.append({"period":f"{s.isoformat()}..{(s+timedelta(days=29)).isoformat()}",**r})
+    returns=[x["return_pct"] for x in periods]
     result={
-      "paper_only":True,"stage":"e038_continuous_30day",
-      "period":f"{first.isoformat()}..{end_day.isoformat()}",
-      "goal":{"start_yen":10000,"days":30},
+      "paper_only":True,"stage":"e038_four_nonoverlap_30day_periods",
+      "goal":{"start_yen_each_period":10000,"days_each":30},
       "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
       "settings":{"take_profit":str(p["take"]),"stop_loss":str(p["stop"]),"trail":str(p["trail"]),
                   "cooldown_bars":p["cooldown"],"max_hold_bars":p["max_hold"],
                   "mom12":str(p["mom12"]),"mom36":str(p["mom36"]),"breadth":str(p["breadth"]),
                   "min_volume_ratio":str(p["min_vr"])},
-      "result":r,
+      "periods":periods,
+      "summary":{"average_return_pct":round(statistics.mean(returns),3),
+                 "median_return_pct":round(statistics.median(returns),3),
+                 "worst_return_pct":round(min(returns),3),
+                 "best_return_pct":round(max(returns),3),
+                 "profitable_periods":sum(1 for x in periods if x["profitable"])},
       "historical_spread_available":False,
       "modeled_costs":{"fee_each_side":str(FEE),"slippage_each_side":str(SLIP),"reserve_rate":"0"}
     }
