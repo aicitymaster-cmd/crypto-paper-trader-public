@@ -100,7 +100,7 @@ def sell(a,sym,close,ts):
         a["loss_streak"]+=1
     return pnl
 
-def run_window(start_day,bars_by_pair,p):
+def run_window(start_day,bars_by_pair,p,days=7):
     start=datetime.combine(start_day,datetime.min.time(),tzinfo=timezone.utc)
     end=start+timedelta(days=days); start_ms=int(start.timestamp()*1000); end_ms=int(end.timestamp()*1000)
     warm_ms=int((start-timedelta(days=1)).timestamp()*1000)
