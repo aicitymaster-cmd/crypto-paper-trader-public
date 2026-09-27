@@ -36,23 +36,14 @@ def fetch_day(pair,day):
 def sma(xs,n): return sum(xs[-n:],D(0))/D(n)
 
 def profile_grid():
-    # Refine exits around e038 while keeping its entry logic fixed.
-    out={}; i=0
-    for take,stop,trail,max_hold in product(
-        (D("0.20"),D("0.225"),D("0.25"),D("0.275"),D("0.30")),
-        (D("0.020"),D("0.025"),D("0.030"),D("0.035"),D("0.040")),
-        (D("0.015"),D("0.020"),D("0.025"),D("0.030"),D("0.035")),
-        (48,72,96),
-    ):
-        i+=1
-        out[f"r{i:03d}"]={
-          "fraction":D("0.95"),"take":take,"stop":stop,"trail":trail,
-          "cooldown":36,"max_hold":max_hold,
-          "mom12":D("0.025"),"mom36":D("0.050"),"breadth":D("0.50"),"min_vr":D("1.30"),
-          "breakout_lookback":0,"breakout_buffer":D("0"),
-          "loss_limit":D("0.10"),"pause_after_losses":2,"pause_bars":36
-        }
-    return out
+    # Fixed e038 logic for a continuous 30-day PAPER simulation.
+    return {"e038_30d":{
+      "fraction":D("0.95"),"take":D("0.25"),"stop":D("0.030"),"trail":D("0.025"),
+      "cooldown":36,"max_hold":72,
+      "mom12":D("0.025"),"mom36":D("0.050"),"breadth":D("0.50"),"min_vr":D("1.30"),
+      "breakout_lookback":0,"breakout_buffer":D("0"),
+      "loss_limit":D("0.10"),"pause_after_losses":2,"pause_bars":36
+    }}
 
 PROFILES=profile_grid()
 
@@ -111,7 +102,7 @@ def sell(a,sym,close,ts):
 
 def run_window(start_day,bars_by_pair,p):
     start=datetime.combine(start_day,datetime.min.time(),tzinfo=timezone.utc)
-    end=start+timedelta(days=7); start_ms=int(start.timestamp()*1000); end_ms=int(end.timestamp()*1000)
+    end=start+timedelta(days=days); start_ms=int(start.timestamp()*1000); end_ms=int(end.timestamp()*1000)
     warm_ms=int((start-timedelta(days=1)).timestamp()*1000)
     hist={s:[] for s in PAIRS}; by_ts=defaultdict(dict)
     for sym,bars in bars_by_pair.items():
@@ -166,7 +157,7 @@ def run_window(start_day,bars_by_pair,p):
 
 def main():
     end_day=(datetime.now(timezone.utc)-timedelta(days=1)).date()
-    first=end_day-timedelta(days=56)
+    first=end_day-timedelta(days=29)
     bars={s:[] for s in PAIRS}
     d=first
     while d<=end_day:
@@ -176,43 +167,18 @@ def main():
             time.sleep(0.02)
         d+=timedelta(days=1)
 
-    starts=[end_day-timedelta(days=55-7*i) for i in range(8)]
-    labels=[f"{s.isoformat()}..{(s+timedelta(days=6)).isoformat()}" for s in starts]
-    search_ids=(0,1,2,3); validation_ids=(4,5,6,7)
-    candidates=[]; best=None; target_hits=0
-    for name,p in PROFILES.items():
-        wr=[run_window(s,bars,p) for s in starts]
-        target_hits+=sum(int(r["hit_200k"]) for r in wr)
-        for i,r in enumerate(wr):
-            item={"profile":name,"window":labels[i],**r}
-            if best is None or r["final_yen"]>best["final_yen"]:best=item
-        vals=[wr[i]["return_pct"] for i in validation_ids]
-        nonneg=all(wr[i]["profitable"] for i in validation_ids)
-        candidates.append({
-          "profile":name,
-          "settings":{"take_profit":str(p["take"]),"stop_loss":str(p["stop"]),
-                      "trail":str(p["trail"]),"cooldown_bars":p["cooldown"],
-                      "max_hold_bars":p["max_hold"],"mom12":str(p["mom12"]),"mom36":str(p["mom36"]),"breadth":str(p["breadth"]),"min_volume_ratio":str(p["min_vr"]),"breakout_lookback":p["breakout_lookback"],"breakout_buffer":str(p["breakout_buffer"])},
-          "validation_all_nonnegative":nonneg,
-          "validation_avg_return_pct":round(statistics.mean(vals),3),
-          "validation_median_return_pct":round(statistics.median(vals),3),
-          "validation_worst_return_pct":round(min(vals),3),
-          "validation_best_return_pct":round(max(vals),3),
-          "validation_target_hits":sum(int(wr[i]["hit_200k"]) for i in validation_ids),
-          "validation_windows":[wr[i] for i in validation_ids]
-        })
-
-    robust=[x for x in candidates if x["validation_all_nonnegative"]]
-    ranked=sorted(candidates,key=lambda x:(x["validation_all_nonnegative"],x["validation_target_hits"],x["validation_median_return_pct"],x["validation_worst_return_pct"]),reverse=True)
+    p=PROFILES["e038_30d"]
+    r=run_window(first,bars,p,days=30)
     result={
-      "paper_only":True,"stage":"e038_exit_refine_30min",
-      "goal":{"start_yen":10000,"target_yen":200000,"days":7},
+      "paper_only":True,"stage":"e038_continuous_30day",
+      "period":f"{first.isoformat()}..{end_day.isoformat()}",
+      "goal":{"start_yen":10000,"days":30},
       "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
-      "pairs":PAIRS,"profiles_tested":len(PROFILES),"total_7day_runs":len(PROFILES)*8,
-      "windows":labels,"target_hits_all_runs":target_hits,
-      "robust_candidates_count":len(robust),
-      "best_single_7day_run":best,
-      "top_candidates":ranked[:10],
+      "settings":{"take_profit":str(p["take"]),"stop_loss":str(p["stop"]),"trail":str(p["trail"]),
+                  "cooldown_bars":p["cooldown"],"max_hold_bars":p["max_hold"],
+                  "mom12":str(p["mom12"]),"mom36":str(p["mom36"]),"breadth":str(p["breadth"]),
+                  "min_volume_ratio":str(p["min_vr"])},
+      "result":r,
       "historical_spread_available":False,
       "modeled_costs":{"fee_each_side":str(FEE),"slippage_each_side":str(SLIP),"reserve_rate":"0"}
     }
