@@ -75,7 +75,8 @@ def score_candidate(h,p):
     one=c/closes[-2]-D(1)
     if not trend or m12<p["mom12"] or m36<p["mom36"] or vr<p["min_vr"] or one>D("0.12"):
         return None
-    return m12*D("2")+m36+min(vr,D("3"))/D("25")
+    score=m12*D("2")+m36+min(vr,D("3"))/D("25")
+    return score, {"m12":float(m12),"m36":float(m36),"vr":float(vr),"one":float(one)}
 
 def buy(a,sym,close,ts,index,p,meta=None):
     if a["positions"] or index<a["pause_until"]:return
