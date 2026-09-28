@@ -50,7 +50,7 @@ PROFILES=profile_grid()
 def new_account():
     return {"cash":START,"positions":{},"last_exit":{},"fees":D(0),
             "sells":0,"wins":0,"peak":START,"max_dd":D(0),
-            "loss_streak":0,"pause_until":-1,"symbols_used":[]}
+            "loss_streak":0,"pause_until":-1,"symbols_used":[],"trades":[]}
 
 def equity(a,prices):
     return a["cash"]+sum(p["qty"]*prices[s] for s,p in a["positions"].items() if s in prices)
@@ -77,7 +77,7 @@ def score_candidate(h,p):
         return None
     return m12*D("2")+m36+min(vr,D("3"))/D("25")
 
-def buy(a,sym,close,ts,index,p):
+def buy(a,sym,close,ts,index,p,meta=None):
     if a["positions"] or index<a["pause_until"]:return
     last=a["last_exit"].get(sym)
     if last is not None and ts-last<p["cooldown"]*30*60*1000:return
@@ -87,7 +87,7 @@ def buy(a,sym,close,ts,index,p):
     gross=qty*px; fee=gross*FEE; cost=gross+fee
     if cost>a["cash"]:return
     a["cash"]-=cost; a["fees"]+=fee
-    a["positions"][sym]={"qty":qty,"entry":px,"cost":cost,"entry_index":index,"peak":px}
+    a["positions"][sym]={"qty":qty,"entry":px,"cost":cost,"entry_index":index,"peak":px,"trough":px,"entry_ts":ts,"meta":meta or {}}
     if sym not in a["symbols_used"]:a["symbols_used"].append(sym)
 
 def sell(a,sym,close,ts):
@@ -98,6 +98,11 @@ def sell(a,sym,close,ts):
         a["wins"]+=1; a["loss_streak"]=0
     else:
         a["loss_streak"]+=1
+    a["trades"].append({"symbol":sym,"entry_ts":pos.get("entry_ts"),"exit_ts":ts,
+        "pnl_yen":float(pnl),"return_on_cost_pct":float(pnl/pos["cost"]*D(100)),
+        "mfe_pct":float((pos["peak"]/pos["entry"]-D(1))*D(100)),
+        "mae_pct":float((pos["trough"]/pos["entry"]-D(1))*D(100)),
+        **pos.get("meta",{})})
     return pnl
 
 def run_window(start_day,bars_by_pair,p,days=7):
@@ -118,7 +123,7 @@ def run_window(start_day,bars_by_pair,p,days=7):
         for sym in list(a["positions"]):
             if sym not in row:continue
             cur=row[sym][4]; pos=a["positions"][sym]
-            pos["peak"]=max(pos["peak"],cur)
+            pos["peak"]=max(pos["peak"],cur); pos["trough"]=min(pos["trough"],cur)
             held=index-pos["entry_index"]
             gain=cur/pos["entry"]-D(1)
             trail_hit=(pos["peak"]>=pos["entry"]*(D(1)+D("0.02")) and
@@ -139,10 +144,13 @@ def run_window(start_day,bars_by_pair,p,days=7):
             candidates=[]
             for sym in row:
                 sc=score_candidate(hist[sym],p)
-                if sc is not None:candidates.append((sc,sym,row[sym][4]))
+                if sc is not None:
+                    score,meta=sc
+                    meta["breadth"]=float(breadth_now)
+                    candidates.append((score,sym,row[sym][4],meta))
             if candidates:
-                _,sym,close=max(candidates)
-                buy(a,sym,close,ts,index,p)
+                _,sym,close,meta=max(candidates,key=lambda x:x[0])
+                buy(a,sym,close,ts,index,p,meta)
 
         eq=equity(a,prices); a["peak"]=max(a["peak"],eq)
         if a["peak"]>0:a["max_dd"]=max(a["max_dd"],(a["peak"]-eq)/a["peak"])
@@ -153,7 +161,7 @@ def run_window(start_day,bars_by_pair,p,days=7):
     return {"final_yen":float(final),"return_pct":float((final/START-D(1))*100),
             "closed_trades":a["sells"],"wins":a["wins"],"fees_yen":float(a["fees"]),
             "max_drawdown_pct":float(a["max_dd"]*100),"hit_200k":final>=TARGET,
-            "profitable":final>=START,"symbols_used":sorted(a["symbols_used"])}
+            "profitable":final>=START,"symbols_used":sorted(a["symbols_used"]),"trades":a["trades"]}
 
 def main():
     end_day=(datetime.now(timezone.utc)-timedelta(days=1)).date()
