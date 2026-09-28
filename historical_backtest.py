@@ -161,10 +161,8 @@ def run_window(start_day,bars_by_pair,p,days=7, regime=None):
             "profitable":final>=START,"symbols_used":sorted(a["symbols_used"])}
 
 def main():
-    # Fixed e038. Small, predeclared regime-filter set; no exit/entry retuning.
-    end_day=(datetime.now(timezone.utc)-timedelta(days=1)).date()
-    starts=[end_day-timedelta(days=119),end_day-timedelta(days=89),end_day-timedelta(days=59),end_day-timedelta(days=29)]
-    first=starts[0]
+    end_day=(datetime.now(timezone.utc)-timedelta(days=61)).date()
+    first=end_day-timedelta(days=29)
     bars={s:[] for s in PAIRS}
     d=first
     while d<=end_day:
@@ -182,20 +180,10 @@ def main():
     }
     out={}
     for name,reg in regimes.items():
-        periods=[]
-        for s in starts:
-            periods.append({"period":f"{s.isoformat()}..{(s+timedelta(days=29)).isoformat()}",
-                            **run_window(s,bars,p,days=30,regime=reg)})
-        # First two periods are selection/training; last two are untouched validation for ranking.
-        train=[x["return_pct"] for x in periods[:2]]
-        hold=[x["return_pct"] for x in periods[2:]]
-        out[name]={"periods":periods,
-                   "train_avg":round(statistics.mean(train),3),
-                   "holdout_avg":round(statistics.mean(hold),3),
-                   "holdout_worst":round(min(hold),3)}
-    result={"paper_only":True,"stage":"e038_regime_filter_walkforward",
+        out[name]=run_window(first,bars,p,days=30,regime=reg)
+    result={"paper_only":True,"stage":"e038_regime_single_30day",
+            "period":f"{first.isoformat()}..{end_day.isoformat()}",
             "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
-            "selection_rule":"compare small fixed regime set; first 2 periods train, last 2 holdout",
             "results":out,
             "modeled_costs":{"fee_each_side":str(FEE),"slippage_each_side":str(SLIP),"reserve_rate":"0"}}
     print(json.dumps(result,ensure_ascii=False))
