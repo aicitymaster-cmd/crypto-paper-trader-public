@@ -1,0 +1,48 @@
+name: e038-forward-paper-check
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: e038-forward-paper-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 --max-time 30 --max-filesize 20000000 \
+            "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" -o repo.tar.gz
+          mkdir repo
+          tar -xzf repo.tar.gz --strip-components=1 -C repo
+          cd repo
+          python3 security_guard.py .
+          python3 -m unittest discover -q
+
+      - name: Run one isolated e038 PAPER cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .e038_state
+          python3 repo/e038_forward_paper.py --state .e038_state/state.json | tee e038-summary.json
+
+      - name: Write summary
+        shell: bash
+        run: |
+          {
+            echo '## e038 forward PAPER check'
+            echo '~~~json'
+            cat e038-summary.json
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
