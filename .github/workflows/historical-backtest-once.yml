@@ -3,7 +3,7 @@ name: historical-backtest-once
 on:
   push:
     branches:
-      - historical-backtest-e038-regime-filter
+      - e038-regime-p2
 
 permissions: {}
 
