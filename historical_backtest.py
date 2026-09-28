@@ -141,7 +141,8 @@ def run_window(start_day,bars_by_pair,p,days=7):
         if eq<=START*(D(1)-p["loss_limit"]):
             continue
 
-        if not a["positions"] and index>=a["pause_until"] and market_breadth(hist)>=p["breadth"]:
+        breadth_now=market_breadth(hist)
+        if not a["positions"] and index>=a["pause_until"] and breadth_now>=p["breadth"]:
             candidates=[]
             for sym in row:
                 sc=score_candidate(hist[sym],p)
