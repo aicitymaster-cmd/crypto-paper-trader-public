@@ -45,3 +45,9 @@ def test_fresh_state_has_audit_fields():
     assert s["paper_only"] is True
     assert s["strategy_sha256"]==e.STRATEGY_SHA256
     assert "started_at" in s and "cycles" in s and "fetch_errors" in s
+
+def test_gap_guard_is_present():
+    import inspect
+    src=inspect.getsource(e.run)
+    assert "BAR_GAP_DETECTED" in src
+    assert "1_800_000" in src
