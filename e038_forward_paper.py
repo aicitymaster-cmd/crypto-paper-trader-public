@@ -1,9 +1,9 @@
 """e038 30-minute forward PAPER engine. Public bitbank data only; no credentials or live orders."""
 from __future__ import annotations
-import json, ssl, urllib.request
+import json, ssl, urllib.request, hashlib
 from datetime import datetime, timezone
 from decimal import Decimal as D, ROUND_DOWN
-from pathlib import Path
+from pathlib import Path\n\nSTRATEGY_SPEC="e038-v1|fraction=.95|take=.25|stop=.03|trail=.025|cooldown=36|max_hold=72|mom12=.025|mom36=.05|breadth=.50|min_vr=1.30|loss_limit=.10|pause_after_losses=2|pause_bars=36"\nSTRATEGY_SHA256=hashlib.sha256(STRATEGY_SPEC.encode()).hexdigest()
 
 PAIRS=["arb_jpy","grt_jpy","gala_jpy","avax_jpy","op_jpy","sui_jpy","xym_jpy","chz_jpy","btc_jpy","eth_jpy","xrp_jpy","ltc_jpy"]
 START=D("10000"); FEE=D("0.0015"); SLIP=D("0.0005")
@@ -45,13 +45,13 @@ def score(h):
 
 def fresh():
     return {"paper_only":True,"version":1,"cash":"10000","position":None,"last_exit":{},"fees":"0","sells":0,"wins":0,
-            "peak":"10000","max_dd":"0","loss_streak":0,"pause_until_ts":0,"last_bar_ts":None,"strategy_id":"e038-v1-fixed","trades":[]}
+            "peak":"10000","max_dd":"0","loss_streak":0,"pause_until_ts":0,"last_bar_ts":None,"strategy_id":"e038-v1-fixed","strategy_sha256":STRATEGY_SHA256,"started_at":None,"cycles":0,"fetch_errors":[],"trades":[]}
 
 def main(path):
     now=datetime.now(timezone.utc); state=fresh()
     p=Path(path)
     if p.exists(): state=json.loads(p.read_text())
-    if state.get("paper_only") is not True: raise RuntimeError("NOT_PAPER")\n    if state.get("strategy_id")!="e038-v1-fixed": raise RuntimeError("STRATEGY_CHANGED")
+    if state.get("paper_only") is not True: raise RuntimeError("NOT_PAPER")\n    if state.get("strategy_id")!="e038-v1-fixed" or state.get("strategy_sha256")!=STRATEGY_SHA256: raise RuntimeError("STRATEGY_CHANGED")
     # Fetch enough warmup across today + prior UTC days.
     hist={s:[] for s in PAIRS}
     from datetime import timedelta
@@ -63,7 +63,7 @@ def main(path):
                 rows=get_json(f"https://public.bitbank.cc/{s}/candlestick/30min/{day}")["candlestick"][0]["ohlcv"]
                 cutoff=int(now.timestamp()*1000)-20_000
                 hist[s].extend([(int(ts),D(o),D(h),D(l),D(c),D(v)) for o,h,l,c,v,ts in rows if int(ts)+1_800_000<=cutoff])
-            except Exception: pass
+            except Exception as exc: fetch_errors.append({"symbol":s,"day":day,"error":type(exc).__name__})
     latest=max((h[-1][0] for h in hist.values() if h),default=None)
     if latest is not None:
         fresh_symbols=[s for s,h in hist.items() if h and h[-1][0]==latest]
@@ -104,7 +104,7 @@ def main(path):
     prices={s:h[-1][4] for s,h in hist.items() if h}; cash=D(state["cash"])
     eq=cash+(D(state["position"]["qty"])*prices[state["position"]["symbol"]] if state["position"] else 0)
     state["peak"]=str(max(D(state["peak"]),eq)); state["max_dd"]=str(max(D(state["max_dd"]),(D(state["peak"])-eq)/D(state["peak"])))
-    state["last_bar_ts"]=latest
+    state["last_bar_ts"]=latest\n    state["cycles"]=int(state.get("cycles",0))+1\n    state["fetch_errors"]=fetch_errors[-100:]
     p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(state,ensure_ascii=False,indent=2))
     print(json.dumps({"paper_only":True,"status":"OK","equity_yen":str(eq),"state":state},ensure_ascii=False))
 
