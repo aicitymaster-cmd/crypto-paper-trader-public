@@ -100,7 +100,7 @@ def sell(a,sym,close,ts):
         a["loss_streak"]+=1
     return pnl
 
-def run_window(start_day,bars_by_pair,p,days=7):
+def run_window(start_day,bars_by_pair,p,days=7, regime=None):
     start=datetime.combine(start_day,datetime.min.time(),tzinfo=timezone.utc)
     end=start+timedelta(days=days); start_ms=int(start.timestamp()*1000); end_ms=int(end.timestamp()*1000)
     warm_ms=int((start-timedelta(days=1)).timestamp()*1000)
@@ -135,7 +135,12 @@ def run_window(start_day,bars_by_pair,p,days=7):
         if eq<=START*(D(1)-p["loss_limit"]):
             continue
 
-        if not a["positions"] and index>=a["pause_until"] and market_breadth(hist)>=p["breadth"]:
+        breadth_now=market_breadth(hist)
+        regime_ok=True
+        if regime:
+            regime_ok=(breadth_now>=regime["breadth"] and
+                       sum(1 for h in hist.values() if len(h)>=72 and h[-1][4]>sma([b[4] for b in h],72)) >= regime["min_above_sma72"])
+        if not a["positions"] and index>=a["pause_until"] and breadth_now>=p["breadth"] and regime_ok:
             candidates=[]
             for sym in row:
                 sc=score_candidate(hist[sym],p)
@@ -156,32 +161,43 @@ def run_window(start_day,bars_by_pair,p,days=7):
             "profitable":final>=START,"symbols_used":sorted(a["symbols_used"])}
 
 def main():
+    # Fixed e038. Small, predeclared regime-filter set; no exit/entry retuning.
     end_day=(datetime.now(timezone.utc)-timedelta(days=1)).date()
-    first=end_day-timedelta(days=29)
+    starts=[end_day-timedelta(days=119),end_day-timedelta(days=89),end_day-timedelta(days=59),end_day-timedelta(days=29)]
+    first=starts[0]
     bars={s:[] for s in PAIRS}
     d=first
     while d<=end_day:
         for pair in PAIRS:
             rows=fetch_day(pair,d)
             if rows:bars[pair].extend(rows)
-            time.sleep(0.02)
+            time.sleep(0.01)
         d+=timedelta(days=1)
-
     p=PROFILES["e038_30d"]
-    r=run_window(first,bars,p,days=30)
-    result={
-      "paper_only":True,"stage":"e038_continuous_30day",
-      "period":f"{first.isoformat()}..{end_day.isoformat()}",
-      "goal":{"start_yen":10000,"days":30},
-      "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
-      "settings":{"take_profit":str(p["take"]),"stop_loss":str(p["stop"]),"trail":str(p["trail"]),
-                  "cooldown_bars":p["cooldown"],"max_hold_bars":p["max_hold"],
-                  "mom12":str(p["mom12"]),"mom36":str(p["mom36"]),"breadth":str(p["breadth"]),
-                  "min_volume_ratio":str(p["min_vr"])},
-      "result":r,
-      "historical_spread_available":False,
-      "modeled_costs":{"fee_each_side":str(FEE),"slippage_each_side":str(SLIP),"reserve_rate":"0"}
+    regimes={
+      "baseline":None,
+      "r60_sma72_6":{"breadth":D("0.60"),"min_above_sma72":6},
+      "r70_sma72_7":{"breadth":D("0.70"),"min_above_sma72":7},
+      "r80_sma72_8":{"breadth":D("0.80"),"min_above_sma72":8}
     }
+    out={}
+    for name,reg in regimes.items():
+        periods=[]
+        for s in starts:
+            periods.append({"period":f"{s.isoformat()}..{(s+timedelta(days=29)).isoformat()}",
+                            **run_window(s,bars,p,days=30,regime=reg)})
+        # First two periods are selection/training; last two are untouched validation for ranking.
+        train=[x["return_pct"] for x in periods[:2]]
+        hold=[x["return_pct"] for x in periods[2:]]
+        out[name]={"periods":periods,
+                   "train_avg":round(statistics.mean(train),3),
+                   "holdout_avg":round(statistics.mean(hold),3),
+                   "holdout_worst":round(min(hold),3)}
+    result={"paper_only":True,"stage":"e038_regime_filter_walkforward",
+            "constraints":{"spot_only":True,"leverage":False,"borrowing":False},
+            "selection_rule":"compare small fixed regime set; first 2 periods train, last 2 holdout",
+            "results":out,
+            "modeled_costs":{"fee_each_side":str(FEE),"slippage_each_side":str(SLIP),"reserve_rate":"0"}}
     print(json.dumps(result,ensure_ascii=False))
     Path("historical-backtest-results.json").write_text(json.dumps(result,ensure_ascii=False,indent=2))
 
