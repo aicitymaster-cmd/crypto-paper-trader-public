@@ -35,3 +35,13 @@ def test_fixed_e038_parameters():
     assert e.P["mom36"]==D("0.05")
     assert e.P["breadth"]==D("0.50")
     assert e.P["min_vr"]==D("1.30")
+
+def test_strategy_is_bound_to_hash():
+    assert len(e.STRATEGY_SHA256)==64
+    assert e.STRATEGY_SHA256
+
+def test_fresh_state_has_audit_fields():
+    s=e.fresh()
+    assert s["paper_only"] is True
+    assert s["strategy_sha256"]==e.STRATEGY_SHA256
+    assert "started_at" in s and "cycles" in s and "fetch_errors" in s
