@@ -3,7 +3,7 @@ name: historical-backtest-once
 on:
   push:
     branches:
-      - e038-trade-diagnostics-p4
+      - e038-trade-diagnostics-p1
 
 permissions: {}
 
