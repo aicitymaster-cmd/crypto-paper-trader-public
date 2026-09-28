@@ -45,13 +45,13 @@ def score(h):
 
 def fresh():
     return {"paper_only":True,"version":1,"cash":"10000","position":None,"last_exit":{},"fees":"0","sells":0,"wins":0,
-            "peak":"10000","max_dd":"0","loss_streak":0,"pause_until":-1,"bar_index":0,"last_bar_ts":None,"trades":[]}
+            "peak":"10000","max_dd":"0","loss_streak":0,"pause_until_ts":0,"last_bar_ts":None,"strategy_id":"e038-v1-fixed","trades":[]}
 
 def main(path):
     now=datetime.now(timezone.utc); state=fresh()
     p=Path(path)
     if p.exists(): state=json.loads(p.read_text())
-    if state.get("paper_only") is not True: raise RuntimeError("NOT_PAPER")
+    if state.get("paper_only") is not True: raise RuntimeError("NOT_PAPER")\n    if state.get("strategy_id")!="e038-v1-fixed": raise RuntimeError("STRATEGY_CHANGED")
     # Fetch enough warmup across today + prior UTC days.
     hist={s:[] for s in PAIRS}
     from datetime import timedelta
@@ -65,14 +65,18 @@ def main(path):
                 hist[s].extend([(int(ts),D(o),D(h),D(l),D(c),D(v)) for o,h,l,c,v,ts in rows if int(ts)+1_800_000<=cutoff])
             except Exception: pass
     latest=max((h[-1][0] for h in hist.values() if h),default=None)
+    if latest is not None:
+        fresh_symbols=[s for s,h in hist.items() if h and h[-1][0]==latest]
+        if len(fresh_symbols)<8: raise RuntimeError("INSUFFICIENT_FRESH_SYMBOLS")
+        if int(now.timestamp()*1000)-(latest+1_800_000)>45*60*1000: raise RuntimeError("STALE_MARKET")
     if latest is None: raise RuntimeError("NO_MARKET_DATA")
     if state["last_bar_ts"]==latest:
         print(json.dumps({"paper_only":True,"status":"NO_NEW_BAR","state":state},ensure_ascii=False)); return
-    state["bar_index"]+=1; idx=state["bar_index"]; prices={s:h[-1][4] for s,h in hist.items() if h}
+    prices={s:h[-1][4] for s,h in hist.items() if h}
     pos=state["position"]
     if pos:
         sym=pos["symbol"]; cur=prices[sym]; entry=D(pos["entry"]); peak=max(D(pos["peak"]),cur); pos["peak"]=str(peak)
-        held=idx-int(pos["entry_index"]); trail=peak>=entry*D("1.02") and cur<=peak*(1-P["trail"])
+        held=max(0,(latest-int(pos["entry_ts"]))//1_800_000); trail=peak>=entry*D("1.02") and cur<=peak*(1-P["trail"])
         reason="STOP" if cur<=entry*(1-P["stop"]) else "TAKE" if cur>=entry*(1+P["take"]) else "TRAIL" if trail else "MAX_HOLD" if held>=P["max_hold"] else None
         if reason:
             px=cur*(1-SLIP); gross=D(pos["qty"])*px; fee=gross*FEE; net=gross-fee; pnl=net-D(pos["cost"])
@@ -80,10 +84,10 @@ def main(path):
             state["loss_streak"]=0 if pnl>0 else state["loss_streak"]+1; state["last_exit"][sym]=latest
             state["trades"].append({"ts":latest,"symbol":sym,"side":"sell","reason":reason,"pnl":str(pnl)})
             state["position"]=None
-            if pnl<=0 and state["loss_streak"]>=P["pause_after_losses"]: state["pause_until"]=idx+P["pause_bars"]; state["loss_streak"]=0
+            if pnl<=0 and state["loss_streak"]>=P["pause_after_losses"]: state["pause_until_ts"]=latest+P["pause_bars"]*1_800_000; state["loss_streak"]=0
     cash=D(state["cash"])
     eq=cash+(D(state["position"]["qty"])*prices[state["position"]["symbol"]] if state["position"] else 0)
-    if not state["position"] and idx>=state["pause_until"] and eq>START*(1-P["loss_limit"]) and breadth(hist)>=P["breadth"]:
+    if not state["position"] and latest>=int(state["pause_until_ts"]) and eq>START*(1-P["loss_limit"]) and breadth(hist)>=P["breadth"]:
         cand=[]
         for s,h in hist.items():
             sc=score(h)
@@ -95,7 +99,7 @@ def main(path):
             cost=qty*px*(1+FEE)
             if qty>0 and cost<=cash:
                 state["cash"]=str(cash-cost); state["fees"]=str(D(state["fees"])+qty*px*FEE)
-                state["position"]={"symbol":sym,"qty":str(qty),"entry":str(px),"cost":str(cost),"entry_index":idx,"peak":str(px)}
+                state["position"]={"symbol":sym,"qty":str(qty),"entry":str(px),"cost":str(cost),"entry_ts":latest,"peak":str(px)}
                 state["trades"].append({"ts":latest,"symbol":sym,"side":"buy","price":str(px),"qty":str(qty)})
     prices={s:h[-1][4] for s,h in hist.items() if h}; cash=D(state["cash"])
     eq=cash+(D(state["position"]["qty"])*prices[state["position"]["symbol"]] if state["position"] else 0)
