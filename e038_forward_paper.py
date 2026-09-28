@@ -67,7 +67,7 @@ def main(path):
     latest=max((h[-1][0] for h in hist.values() if h),default=None)
     if latest is not None:
         fresh_symbols=[s for s,h in hist.items() if h and h[-1][0]==latest]
-        if len(fresh_symbols)<8: raise RuntimeError("INSUFFICIENT_FRESH_SYMBOLS")
+        if len(fresh_symbols)<8: raise RuntimeError("INSUFFICIENT_FRESH_SYMBOLS")\n        hist={s:h for s,h in hist.items() if s in fresh_symbols}
         if int(now.timestamp()*1000)-(latest+1_800_000)>45*60*1000: raise RuntimeError("STALE_MARKET")
     if latest is None: raise RuntimeError("NO_MARKET_DATA")
     if state["last_bar_ts"]==latest:
