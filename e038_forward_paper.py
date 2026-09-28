@@ -3,7 +3,10 @@ from __future__ import annotations
 import json, ssl, urllib.request, hashlib
 from datetime import datetime, timezone
 from decimal import Decimal as D, ROUND_DOWN
-from pathlib import Path\n\nSTRATEGY_SPEC="e038-v1|fraction=.95|take=.25|stop=.03|trail=.025|cooldown=36|max_hold=72|mom12=.025|mom36=.05|breadth=.50|min_vr=1.30|loss_limit=.10|pause_after_losses=2|pause_bars=36"\nSTRATEGY_SHA256=hashlib.sha256(STRATEGY_SPEC.encode()).hexdigest()
+from pathlib import Path
+
+STRATEGY_SPEC="e038-v1|fraction=.95|take=.25|stop=.03|trail=.025|cooldown=36|max_hold=72|mom12=.025|mom36=.05|breadth=.50|min_vr=1.30|loss_limit=.10|pause_after_losses=2|pause_bars=36"
+STRATEGY_SHA256=hashlib.sha256(STRATEGY_SPEC.encode()).hexdigest()
 
 PAIRS=["arb_jpy","grt_jpy","gala_jpy","avax_jpy","op_jpy","sui_jpy","xym_jpy","chz_jpy","btc_jpy","eth_jpy","xrp_jpy","ltc_jpy"]
 START=D("10000"); FEE=D("0.0015"); SLIP=D("0.0005")
@@ -48,12 +51,22 @@ def fresh():
             "peak":"10000","max_dd":"0","loss_streak":0,"pause_until_ts":0,"last_bar_ts":None,"strategy_id":"e038-v1-fixed","strategy_sha256":STRATEGY_SHA256,"started_at":None,"cycles":0,"fetch_errors":[],"trades":[]}
 
 def main(path):
-    now=datetime.now(timezone.utc); state=fresh()
+    now=datetime.now(timezone.utc)
     p=Path(path)
-    if p.exists(): state=json.loads(p.read_text())
-    if state.get("paper_only") is not True: raise RuntimeError("NOT_PAPER")\n    if state.get("strategy_id")!="e038-v1-fixed" or state.get("strategy_sha256")!=STRATEGY_SHA256: raise RuntimeError("STRATEGY_CHANGED")
+    marker=p.with_suffix(".started")
+    if p.exists():
+        state=json.loads(p.read_text())
+    elif marker.exists():
+        raise RuntimeError("STATE_MISSING_AFTER_START")
+    else:
+        state=fresh()
+        state["started_at"]=now.isoformat()
+        marker.parent.mkdir(parents=True,exist_ok=True)
+        marker.write_text(state["started_at"])
+    if state.get("paper_only") is not True: raise RuntimeError("NOT_PAPER")
+    if state.get("strategy_id")!="e038-v1-fixed" or state.get("strategy_sha256")!=STRATEGY_SHA256: raise RuntimeError("STRATEGY_CHANGED")
     # Fetch enough warmup across today + prior UTC days.
-    hist={s:[] for s in PAIRS}
+    hist={s:[] for s in PAIRS}; fetch_errors=[]
     from datetime import timedelta
     for back in range(5,-1,-1):
         dt=now-timedelta(days=back)
@@ -67,7 +80,8 @@ def main(path):
     latest=max((h[-1][0] for h in hist.values() if h),default=None)
     if latest is not None:
         fresh_symbols=[s for s,h in hist.items() if h and h[-1][0]==latest]
-        if len(fresh_symbols)<8: raise RuntimeError("INSUFFICIENT_FRESH_SYMBOLS")\n        hist={s:h for s,h in hist.items() if s in fresh_symbols}
+        if len(fresh_symbols)<8: raise RuntimeError("INSUFFICIENT_FRESH_SYMBOLS")
+        hist={s:h for s,h in hist.items() if s in fresh_symbols}
         if int(now.timestamp()*1000)-(latest+1_800_000)>45*60*1000: raise RuntimeError("STALE_MARKET")
     if latest is None: raise RuntimeError("NO_MARKET_DATA")
     if state["last_bar_ts"]==latest:
@@ -106,7 +120,9 @@ def main(path):
     prices={s:h[-1][4] for s,h in hist.items() if h}; cash=D(state["cash"])
     eq=cash+(D(state["position"]["qty"])*prices[state["position"]["symbol"]] if state["position"] else 0)
     state["peak"]=str(max(D(state["peak"]),eq)); state["max_dd"]=str(max(D(state["max_dd"]),(D(state["peak"])-eq)/D(state["peak"])))
-    state["last_bar_ts"]=latest\n    state["cycles"]=int(state.get("cycles",0))+1\n    state["fetch_errors"]=fetch_errors[-100:]
+    state["last_bar_ts"]=latest
+    state["cycles"]=int(state.get("cycles",0))+1
+    state["fetch_errors"]=fetch_errors[-100:]
     p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(state,ensure_ascii=False,indent=2))
     print(json.dumps({"paper_only":True,"status":"OK","equity_yen":str(eq),"state":state},ensure_ascii=False))
 
