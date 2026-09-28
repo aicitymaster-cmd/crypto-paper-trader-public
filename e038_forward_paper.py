@@ -72,6 +72,8 @@ def main(path):
     if latest is None: raise RuntimeError("NO_MARKET_DATA")
     if state["last_bar_ts"]==latest:
         print(json.dumps({"paper_only":True,"status":"NO_NEW_BAR","state":state},ensure_ascii=False)); return
+    if state["last_bar_ts"] is not None and latest-int(state["last_bar_ts"])!=1_800_000:
+        raise RuntimeError("BAR_GAP_DETECTED")
     prices={s:h[-1][4] for s,h in hist.items() if h}
     pos=state["position"]
     if pos:
