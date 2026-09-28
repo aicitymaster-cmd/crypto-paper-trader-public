@@ -48,6 +48,6 @@ def test_fresh_state_has_audit_fields():
 
 def test_gap_guard_is_present():
     import inspect
-    src=inspect.getsource(e.run)
+    src=inspect.getsource(e.main)
     assert "BAR_GAP_DETECTED" in src
     assert "1_800_000" in src
