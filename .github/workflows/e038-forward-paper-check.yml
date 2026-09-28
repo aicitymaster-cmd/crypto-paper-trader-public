@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Restore e038 PAPER state
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .e038_state
           key: e038-paper-state-${{ github.run_id }}
@@ -46,13 +46,6 @@ jobs:
           set -euo pipefail
           mkdir -p .e038_state
           python3 repo/e038_forward_paper.py --state .e038_state/state.json | tee e038-summary.json
-
-      - name: Save e038 PAPER state
-        if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: .e038_state
-          key: e038-paper-state-${{ github.run_id }}
 
       - name: Write summary
         shell: bash
