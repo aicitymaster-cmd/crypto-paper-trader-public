@@ -29,6 +29,14 @@ class CrossMarketTests(unittest.TestCase):
         self.assertTrue(r.ruined)
         self.assertLessEqual(r.final_yen, 1_000)
 
+    def test_intrabar_low_can_ruin_even_when_close_recovers(self):
+        t = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        bars = [Bar(t + timedelta(hours=i), 100 + i * 0.1) for i in range(37)]
+        bars.append(Bar(t + timedelta(hours=37), 103.7, 103.6, 104.0, 95.0))
+        r = run_window(bars, leverage=25, spread_bps=0, stop_pct=0.01)
+        self.assertTrue(r.ruined)
+        self.assertLessEqual(r.final_yen, 1_000)
+
     def test_rolling_windows_and_summary(self):
         bars = self.bars(count=24 * 21 + 40)
         rs = rolling_7d(bars, leverage=1)
