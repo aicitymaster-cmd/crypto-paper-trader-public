@@ -6,9 +6,6 @@ on:
     branches:
       - ko-50k-direct-check
     paths:
-      - jpx_mini_option_event_features.py
-      - jpx_mini_option_event_gate_validate.py
-      - jpx_scheduled_event_strangle_check.py
       - jpx_post_shock_continuation_check.py
       - .github/workflows/research-fast.yml
 
@@ -17,7 +14,7 @@ permissions: {}
 jobs:
   research:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 3
     steps:
       - name: Fetch exact public commit without credentials
         shell: bash
@@ -36,31 +33,9 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
-      - name: Run event feature discovery if present
+
+      - name: Run post-shock continuation
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f repo/jpx_mini_option_event_features.py ]; then
-            python3 repo/jpx_mini_option_event_features.py
-          fi
-      - name: Run scheduled-event strangle check if present
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f repo/jpx_scheduled_event_strangle_check.py ]; then
-            python3 repo/jpx_scheduled_event_strangle_check.py
-          fi
-      - name: Run post-shock continuation if present
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f repo/jpx_post_shock_continuation_check.py ]; then
-            python3 repo/jpx_post_shock_continuation_check.py
-          fi
-      - name: Run frozen event gate validation if present
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f repo/jpx_mini_option_event_gate_validate.py ]; then
-            python3 repo/jpx_mini_option_event_gate_validate.py
-          fi
+          python3 repo/jpx_post_shock_continuation_check.py
