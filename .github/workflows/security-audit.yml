@@ -131,6 +131,12 @@ jobs:
           set -euo pipefail
           python3 repo/jpx_option_csv_inspect.py | tee jpx-option-csv-inspect.json
 
+      - name: Measure JPX mini-option seven-day convexity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_mini_option_convexity_check.py | tee jpx-mini-option-convexity.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
