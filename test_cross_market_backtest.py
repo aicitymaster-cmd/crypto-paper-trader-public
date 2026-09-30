@@ -21,6 +21,14 @@ class CrossMarketTests(unittest.TestCase):
         self.assertFalse(r.ruined)
         self.assertIsInstance(r.target_hit, bool)
 
+    def test_mark_to_market_can_trigger_ruin(self):
+        t = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        prices = [100 + i * 0.1 for i in range(37)] + [95.0]
+        bars = [Bar(t + timedelta(hours=i), p) for i, p in enumerate(prices)]
+        r = run_window(bars, leverage=25, spread_bps=0, stop_pct=1.0)
+        self.assertTrue(r.ruined)
+        self.assertLessEqual(r.final_yen, 1_000)
+
     def test_rolling_windows_and_summary(self):
         bars = self.bars(count=24 * 21 + 40)
         rs = rolling_7d(bars, leverage=1)
