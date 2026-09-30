@@ -1,0 +1,41 @@
+name: variable-risk-research
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - mini-option-variable-risk
+    paths:
+      - jpx_variable_risk_strangle_check.py
+      - .github/workflows/variable-risk-research.yml
+
+permissions: {}
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            --max-time 30 --max-filesize 20000000 \
+            "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" \
+            -o repo.tar.gz
+          mkdir repo
+          tar -xzf repo.tar.gz --strip-components=1 -C repo
+          cd repo
+          python3 security_guard.py .
+          python3 -m unittest discover -q
+
+      - name: Run variable-risk research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_variable_risk_strangle_check.py
