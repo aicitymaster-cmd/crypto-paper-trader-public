@@ -33,9 +33,9 @@ FLOOR=5_000.0
 P_MIN=10.0
 P_MAX=15.0
 MULT=100.0
-INITIAL_RISK_CAP=5_000.0
-PROTECT_TRIGGER=15_000.0
-PROTECT_AMOUNT=5_000.0
+INITIAL_RISK_CAP=10_000.0
+PROTECT_TRIGGER=1_000_000_000.0
+PROTECT_AMOUNT=0.0
 TAKE_MULTIPLE=5.0
 
 def get(url,accept):
@@ -211,8 +211,8 @@ def main():
       "rule":{"campaign_days":7,"entry_premium_yen":[P_MIN,P_MAX],
               "initial_risk_cap_yen":INITIAL_RISK_CAP,
               "take_profit_multiple":TAKE_MULTIPLE,
-              "protect_trigger_yen":PROTECT_TRIGGER,
-              "protect_amount_yen":PROTECT_AMOUNT,
+              "protect_trigger_yen":None,
+              "protect_amount_yen":0.0,
               "direction":"contrarian current close move"},
       "rolling":summarize(rows),
       "first_half":summarize(rows[:split]),
