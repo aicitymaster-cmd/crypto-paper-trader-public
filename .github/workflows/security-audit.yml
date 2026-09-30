@@ -101,6 +101,12 @@ jobs:
           set -euo pipefail
           python3 repo/ko_holdout_50k_check.py | tee ko-holdout-50k.json
 
+      - name: Check two-year hourly public market data coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/long_horizon_data_check.py | tee long-horizon-data.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
