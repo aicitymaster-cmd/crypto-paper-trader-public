@@ -1,0 +1,50 @@
+name: research-fast
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ko-50k-direct-check
+    paths:
+      - jpx_mini_option_event_features.py
+      - jpx_mini_option_event_gate_validate.py
+      - .github/workflows/research-fast.yml
+
+permissions: {}
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            --max-time 30 --max-filesize 20000000 \
+            "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" \
+            -o repo.tar.gz
+          mkdir repo
+          tar -xzf repo.tar.gz --strip-components=1 -C repo
+          cd repo
+          python3 security_guard.py .
+          python3 -m unittest discover -q
+      - name: Run event feature discovery if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f repo/jpx_mini_option_event_features.py ]; then
+            python3 repo/jpx_mini_option_event_features.py
+          fi
+      - name: Run frozen event gate validation if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f repo/jpx_mini_option_event_gate_validate.py ]; then
+            python3 repo/jpx_mini_option_event_gate_validate.py
+          fi
