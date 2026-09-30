@@ -55,6 +55,19 @@ jobs:
             echo "CROSS_MARKET_RESULT_REUSED"
           fi
 
+      - name: Run one-time KO-style upper-bound research
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .paper_state
+          if [ ! -s .paper_state/ko_upper_bound_v1.json ]; then
+            tmp="$(mktemp)"
+            python3 repo/ko_upper_bound_run.py | tee "$tmp"
+            mv "$tmp" .paper_state/ko_upper_bound_v1.json
+          else
+            echo "KO_UPPER_BOUND_RESULT_REUSED"
+          fi
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
@@ -129,5 +142,10 @@ jobs:
             echo '### Cross-market 7-day research'
             echo '~~~json'
             if [ -f .paper_state/cross_market_public_v1.json ]; then cat .paper_state/cross_market_public_v1.json; else echo '{"status":"NOT_YET_AVAILABLE"}'; fi
+            echo '~~~'
+            echo
+            echo '### KO-style upper-bound research'
+            echo '~~~json'
+            if [ -f .paper_state/ko_upper_bound_v1.json ]; then cat .paper_state/ko_upper_bound_v1.json; else echo '{"status":"NOT_YET_AVAILABLE"}'; fi
             echo '~~~'
           } >> "$GITHUB_STEP_SUMMARY"
