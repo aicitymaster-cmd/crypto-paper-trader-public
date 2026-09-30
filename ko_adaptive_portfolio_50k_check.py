@@ -1,4 +1,4 @@
-"""Adaptive 3-market KO portfolio screening.
+"""Adaptive 3-market KO portfolio screening.\n\n# retry-trigger: startup_failure recovery
 
 Research only. Uses public OHLC and zero spread/funding/KO premium.
 Capital is fully deployable. Each 7-day window is split into daily sleeves.
