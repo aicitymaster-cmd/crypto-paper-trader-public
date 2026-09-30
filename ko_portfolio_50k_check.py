@@ -63,8 +63,19 @@ def chunks(bars_by_market):
 def main():
     bars={m:parse_chart(fetch_chart(sym)) for m,sym in MARKETS.items()}
     win=chunks(bars)
+
+    # Precompute every market/setting/window once, then combine cached finals.
+    cached={m:{} for m in MARKETS}
+    for m in MARKETS:
+        for d in DISTANCES:
+            for r in RISKS:
+                key=(d,r)
+                cached[m][key]=[
+                    run_sleeve(ch[m],START,d,r)/START
+                    for _,ch in win
+                ]
+
     configs=[]
-    names=list(MARKETS)
     for alloc in ALLOCATIONS:
       for dg in DISTANCES:
        for rg in RISKS:
@@ -73,13 +84,13 @@ def main():
           for dn in DISTANCES:
            for rn in RISKS:
             finals=[]
-            for _,ch in win:
-                vals=[
-                    run_sleeve(ch["GBPJPY"],START*alloc[0],dg,rg),
-                    run_sleeve(ch["GOLD"],START*alloc[1],dx,rx),
-                    run_sleeve(ch["NASDAQ100"],START*alloc[2],dn,rn),
-                ]
-                finals.append(sum(vals))
+            for i in range(len(win)):
+                total=START*(
+                    alloc[0]*cached["GBPJPY"][(dg,rg)][i]
+                    +alloc[1]*cached["GOLD"][(dx,rx)][i]
+                    +alloc[2]*cached["NASDAQ100"][(dn,rn)][i]
+                )
+                finals.append(total)
             s=sorted(finals); n=len(s)
             med=s[n//2] if n%2 else (s[n//2-1]+s[n//2])/2
             configs.append({
@@ -99,8 +110,6 @@ def main():
               "best_final_yen":round(max(finals),2),
               "worst_final_yen":round(min(finals),2),
             })
-    # Pareto-ish shortlist: sort first for high target rate, then low floor failures,
-    # then higher median. Keep enough rows to inspect tradeoffs.
     configs.sort(key=lambda x:(-x["target_rate_pct"],x["below_5000_rate_pct"],-x["median_final_yen"]))
     best_target=configs[:20]
     safe=sorted(configs,key=lambda x:(x["below_5000_rate_pct"],-x["target_rate_pct"],-x["median_final_yen"]))[:20]
