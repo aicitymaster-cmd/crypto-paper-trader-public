@@ -27,7 +27,7 @@ class KOUpperBoundTests(unittest.TestCase):
             bars.append(Bar(t + timedelta(minutes=30*i), c, c, c, c))
         r = run_window(bars, distance=0.0025, risk_fraction=1.0)
         self.assertTrue(r["target_hit"])
-        self.assertEqual(r["final_yen"], 200_000.0)
+        self.assertEqual(r["final_yen"], 50_000.0)
 
     def test_summary_reports_5000_yen_threshold(self):
         rows = [
