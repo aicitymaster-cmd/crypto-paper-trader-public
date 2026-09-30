@@ -83,6 +83,12 @@ jobs:
           set -euo pipefail
           python3 repo/ko_portfolio_50k_check.py | tee ko-portfolio-50k.json
 
+      - name: Run adaptive three-market 50k portfolio screening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/ko_adaptive_portfolio_50k_check.py | tee ko-adaptive-portfolio-50k.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
