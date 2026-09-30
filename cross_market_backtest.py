@@ -95,6 +95,24 @@ def run_window(
         if pos:
             raw = pos * (price / entry - 1.0)
             move = raw * leverage
+            # Mark to market every bar. High leverage can breach the ruin
+            # threshold before an exit signal; counting only realized equity
+            # would materially understate drawdown and failure frequency.
+            marked = max(
+                0.0,
+                entry_equity
+                * (1.0 + move - leverage * cost_rate),
+            )
+            peak = max(peak, marked)
+            if peak:
+                max_dd = max(max_dd, (peak - marked) / peak)
+            target_hit |= marked >= target_yen
+            if marked <= ruin_yen:
+                equity = marked
+                trades += 1
+                pos = 0
+                break
+
             should_exit = raw <= -stop_pct or raw >= take_pct or signal != pos
             if should_exit:
                 pnl = entry_equity * (move - leverage * cost_rate)
@@ -106,8 +124,6 @@ def run_window(
                 if peak:
                     max_dd = max(max_dd, (peak - equity) / peak)
                 target_hit |= equity >= target_yen
-                if equity <= ruin_yen:
-                    break
 
         if not pos and equity > ruin_yen:
             pos = signal
