@@ -149,6 +149,12 @@ jobs:
           set -euo pipefail
           python3 repo/jpx_mini_option_directional_check.py | tee jpx-mini-option-directional.json
 
+      - name: Extract first-half mini-option event features
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_mini_option_event_features.py | tee jpx-mini-option-event-features.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
