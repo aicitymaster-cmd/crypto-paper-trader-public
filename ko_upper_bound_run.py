@@ -15,7 +15,7 @@ from cross_market_public_run import MARKETS, fetch_chart, parse_chart
 DISTANCES = (0.0025, 0.005, 0.01)  # 0.25%, 0.5%, 1.0%
 RISK_FRACTIONS = (0.25, 0.5, 1.0)
 START_YEN = 10_000.0
-TARGET_YEN = 200_000.0
+TARGET_YEN = 50_000.0
 RUIN_YEN = 1_000.0
 FAST = 12
 SLOW = 36
@@ -165,6 +165,7 @@ def run_all():
             "risk_fractions": RISK_FRACTIONS,
             "start_yen": START_YEN,
             "target_yen": TARGET_YEN,
+            "final_floor_yen": 5_000.0,
         },
         "markets": markets,
         "failures": failures,
