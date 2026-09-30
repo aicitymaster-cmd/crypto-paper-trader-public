@@ -1,17 +1,23 @@
-"""4-7 DTE, ~6% OTM ultra-cheap NK225 mini-option strangle.
+"""Seven-day profit-recycling campaign for ultra-cheap NK225 mini options.
 
-Fixed structural rule:
-- Keep at least 5,000 JPY cash.
-- Buy exactly one OTM call + one OTM put when both are available.
-- Same maturity, 4-7 calendar days away.
-- Each actual premium 10-30 JPY (=1,000-3,000 JPY).
-- Combined premium <=50 JPY (=<=5,000 JPY).
-- On each side choose the contract whose absolute OTM moneyness is closest to 6%.
-- If multiple maturities qualify, choose the one whose DTE is closest to 5 days,
-  then smaller total moneyness error, then higher spend.
-- Track the same two option codes for up to 7 calendar days using actual JPX closes.
+Exploratory research using JPX actual daily closing premiums.
 
-Research only. Daily closes do not guarantee executable fills.
+Frozen mechanics:
+- Start 10,000 JPY.
+- One new OTM option per business day at most.
+- Eligible premium 10-15 JPY (=1,000-1,500 JPY), DTE 2-7 days.
+- Direction: contrarian to the current day's NK225 close move vs prior business day
+  (up day -> put, down day -> call). Entry is modelled at that day's published close.
+- Sell any open option at the first later daily close where premium >= 5x entry premium.
+  Sale is at the actual published close, not capped at 5x.
+- If cash + marked holdings ever reaches >=15,000 JPY, permanently protect 5,000 JPY.
+- Protected cash is never reused.
+- After protection, new purchases use only unprotected cash.
+- Before protection, cumulative initial-premium spending may not exceed 5,000 JPY.
+- After a profitable sale, realised profit may be recycled into later purchases.
+- Success if total marked equity reaches >=50,000 JPY within the 7-day campaign.
+
+Daily closes do not guarantee executable fills.
 """
 from __future__ import annotations
 import csv, io, json, ssl, urllib.parse, urllib.request
@@ -19,16 +25,18 @@ from datetime import datetime, timedelta
 
 BASE="https://www.jpx.co.jp"
 JSON_URL=BASE+"/automation/markets/derivatives/option-price/json/option_theoretical_price.json"
-UA="crypto-paper-trader-public-6pct-strangle/1.0"
+UA="crypto-paper-trader-public-profit-recycle/1.0"
 PRODUCT="NK225MWE"
 START=10_000.0
 TARGET=50_000.0
 FLOOR=5_000.0
 P_MIN=10.0
-P_MAX=30.0
-MAX_COMBINED=50.0
-TARGET_M=0.06
+P_MAX=15.0
 MULT=100.0
+INITIAL_RISK_CAP=5_000.0
+PROTECT_TRIGGER=15_000.0
+PROTECT_AMOUNT=5_000.0
+TAKE_MULTIPLE=5.0
 
 def get(url,accept):
     req=urllib.request.Request(url,method="GET",headers={"User-Agent":UA,"Accept":accept})
@@ -66,47 +74,115 @@ def load():
         daily[day]={"underlying":u,"options":opts}
     return daily
 
-def choose(day,book):
+def choose(day,book,side):
     u=book["underlying"]
     if u is None:return None
-    by_mat={}
+    xs=[]
     for o in book["options"].values():
-        if o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
-        try:md=datetime.strptime(o["maturity"],"%Y%m%d").date()
-        except:continue
-        dte=(md-day).days
-        if not(4<=dte<=7):continue
-        if o["side"]=="call":
+        if o["side"]!=side or o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
+        if side=="call":
             if o["strike"]<u:continue
             m=o["strike"]/u-1.0
         else:
             if o["strike"]>u:continue
             m=u/o["strike"]-1.0
-        by_mat.setdefault(o["maturity"],{"dte":dte,"call":[],"put":[]})[o["side"]].append((abs(m-TARGET_M),m,o))
-    pairs=[]
-    for ms,g in by_mat.items():
-        if not g["call"] or not g["put"]:continue
-        g["call"].sort(key=lambda x:(x[0],x[1],x[2]["premium"]))
-        g["put"].sort(key=lambda x:(x[0],x[1],x[2]["premium"]))
-        # Consider a few nearest-to-target candidates per side so budget can bind.
-        for ce,cm,c in g["call"][:5]:
-            for pe,pm,p in g["put"][:5]:
-                total=c["premium"]+p["premium"]
-                if total>MAX_COMBINED:continue
-                error=ce+pe
-                pairs.append((abs(g["dte"]-5),error,-total,ms,g["dte"],c,p,cm,pm))
-    if not pairs:return None
-    pairs.sort(key=lambda x:(x[0],x[1],x[2]))
-    _,error,neg_total,ms,dte,c,p,cm,pm=pairs[0]
-    return {"maturity":ms,"dte":dte,"call":c,"put":p,
-            "call_m":cm,"put_m":pm,"combined":-neg_total,"error":error}
+        try:md=datetime.strptime(o["maturity"],"%Y%m%d").date()
+        except:continue
+        dte=(md-day).days
+        if not(2<=dte<=7):continue
+        xs.append((o["premium"],m,dte,o))
+    if not xs:return None
+    xs.sort(key=lambda x:(x[0],x[1],x[2]))
+    return xs[0][3]
+
+def mark(day,daily,cash,protected,holdings):
+    ob=daily[day]["options"]
+    total=cash+protected
+    for h in holdings:
+        x=ob.get(h["code"])
+        if x:total+=x["premium"]*MULT
+    return total
+
+def run_campaign(daily,dates,start_idx):
+    start_day=dates[start_idx]
+    end_day=start_day+timedelta(days=7)
+    campaign=[(i,d) for i,d in enumerate(dates) if start_day<=d<end_day]
+    if not campaign:return None
+    cash=START
+    protected=0.0
+    holdings=[]
+    initial_spent=0.0
+    trades=[]
+    best=START
+    best_day=start_day
+    target=False
+
+    for i,day in campaign:
+        ob=daily[day]["options"]
+
+        # First, realise winners at actual current close.
+        still=[]
+        for h in holdings:
+            x=ob.get(h["code"])
+            if x and x["premium"]>=TAKE_MULTIPLE*h["entry_premium"]:
+                proceeds=x["premium"]*MULT
+                cash+=proceeds
+                trades.append({"type":"sell","date":day.strftime("%Y%m%d"),
+                               "code":h["code"],"premium":x["premium"],
+                               "proceeds_yen":proceeds,
+                               "multiple":round(x["premium"]/h["entry_premium"],4)})
+            else:
+                still.append(h)
+        holdings=still
+
+        eq=mark(day,daily,cash,protected,holdings)
+        if protected<PROTECT_AMOUNT and eq>=PROTECT_TRIGGER and cash>=PROTECT_AMOUNT:
+            protected=PROTECT_AMOUNT
+            cash-=PROTECT_AMOUNT
+            trades.append({"type":"protect","date":day.strftime("%Y%m%d"),
+                           "amount_yen":PROTECT_AMOUNT})
+
+        # Contrarian side from current close vs previous business-day close.
+        side=None
+        if i>=1:
+            cur=daily[day]["underlying"]
+            prev=daily[dates[i-1]]["underlying"]
+            if cur is not None and prev is not None and cur!=prev:
+                side="put" if cur>prev else "call"
+
+        if side:
+            o=choose(day,daily[day],side)
+            if o:
+                cost=o["premium"]*MULT
+                can_use_initial=(protected>0 or initial_spent+cost<=INITIAL_RISK_CAP)
+                if can_use_initial and cash>=cost:
+                    cash-=cost
+                    if protected==0:initial_spent+=cost
+                    holdings.append({"code":o["code"],"entry_premium":o["premium"],
+                                     "side":side,"entry_date":day})
+                    trades.append({"type":"buy","date":day.strftime("%Y%m%d"),
+                                   "side":side,"code":o["code"],"premium":o["premium"],
+                                   "cost_yen":cost})
+
+        eq=mark(day,daily,cash,protected,holdings)
+        if eq>best:
+            best=eq; best_day=day
+        if eq>=TARGET:
+            target=True
+            break
+
+    last_day=campaign[-1][1]
+    final=mark(last_day,daily,cash,protected,holdings)
+    return {"start":start_day.strftime("%Y%m%d"),"end":last_day.strftime("%Y%m%d"),
+            "best_value_yen":round(best,2),"best_date":best_day.strftime("%Y%m%d"),
+            "target_hit":target,"final_value_yen":round(final,2),
+            "protected_yen":round(protected,2),"trades":trades}
 
 def summarize(rows):
     n=len(rows)
     if not n:return {"campaigns":0}
     finals=sorted(r["final_value_yen"] for r in rows)
-    return {
-      "campaigns":n,
+    return {"campaigns":n,
       "target_hits":sum(r["target_hit"] for r in rows),
       "target_rate_pct":round(100*sum(r["target_hit"] for r in rows)/n,4),
       "best_at_least_20000_rate_pct":round(100*sum(r["best_value_yen"]>=20000 for r in rows)/n,4),
@@ -114,57 +190,35 @@ def summarize(rows):
       "final_at_least_10000_rate_pct":round(100*sum(r["final_value_yen"]>=START for r in rows)/n,4),
       "median_final_yen":round(finals[n//2] if n%2 else (finals[n//2-1]+finals[n//2])/2,2),
       "best_value_yen":round(max(r["best_value_yen"] for r in rows),2),
-      "worst_final_yen":round(min(finals),2)
-    }
+      "worst_final_yen":round(min(finals),2)}
 
 def main():
-    daily=load(); dates=sorted(daily); rows=[]
-    for day in dates:
-        sel=choose(day,daily[day])
-        if not sel:continue
-        cost=sel["combined"]*MULT
-        cash=START-cost
-        if cash<FLOOR:continue
-        marks=[]
-        for d in dates:
-            if d<=day or d>day+timedelta(days=7):continue
-            ob=daily[d]["options"]
-            c=ob.get(sel["call"]["code"]); p=ob.get(sel["put"]["code"])
-            value=cash
-            if c:value+=c["premium"]*MULT
-            if p:value+=p["premium"]*MULT
-            marks.append((d,value))
-        if not marks:continue
-        best=max(marks,key=lambda x:x[1]); last=marks[-1]
-        rows.append({
-          "entry_date":day.strftime("%Y%m%d"),"maturity":sel["maturity"],"dte":sel["dte"],
-          "entry_cost_yen":round(cost,2),"cash_left_yen":round(cash,2),
-          "call":{"code":sel["call"]["code"],"premium":sel["call"]["premium"],
-                  "strike":sel["call"]["strike"],"moneyness_pct":round(sel["call_m"]*100,4)},
-          "put":{"code":sel["put"]["code"],"premium":sel["put"]["premium"],
-                 "strike":sel["put"]["strike"],"moneyness_pct":round(sel["put_m"]*100,4)},
-          "best_date":best[0].strftime("%Y%m%d"),"best_value_yen":round(best[1],2),
-          "target_hit":best[1]>=TARGET,
-          "final_date":last[0].strftime("%Y%m%d"),"final_value_yen":round(last[1],2)
-        })
-    split=len(dates)//2
-    first_dates=set(dates[:split]); second_dates=set(dates[split:])
-    first=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date() in first_dates]
-    second=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date() in second_dates]
-    non=[]; next_allowed=None
+    daily=load(); dates=sorted(daily)
+    rows=[]
+    for i,day in enumerate(dates):
+        if day+timedelta(days=7)>dates[-1]+timedelta(days=1):continue
+        r=run_campaign(daily,dates,i)
+        if r:rows.append(r)
+    split=len(rows)//2
+    non=[]; nxt=None
     for r in rows:
-        d=datetime.strptime(r["entry_date"],"%Y%m%d").date()
-        if next_allowed is None or d>=next_allowed:
-            non.append(r); next_allowed=d+timedelta(days=7)
+        d=datetime.strptime(r["start"],"%Y%m%d").date()
+        if nxt is None or d>=nxt:
+            non.append(r); nxt=d+timedelta(days=7)
     print(json.dumps({
       "paper_only":True,
       "source":"JPX actual daily NK225 mini-option closes",
-      "rule":{"cash_floor_yen":FLOOR,"max_option_cost_yen":MAX_COMBINED*MULT,
-              "leg_premium_range":[P_MIN,P_MAX],"same_maturity":True,
-              "dte_days":[4,7],"target_otm_pct":TARGET_M*100},
-      "all":summarize(rows),"first_half":summarize(first),
-      "second_half":summarize(second),"non_overlapping":summarize(non),
-      "rows":rows
+      "rule":{"campaign_days":7,"entry_premium_yen":[P_MIN,P_MAX],
+              "initial_risk_cap_yen":INITIAL_RISK_CAP,
+              "take_profit_multiple":TAKE_MULTIPLE,
+              "protect_trigger_yen":PROTECT_TRIGGER,
+              "protect_amount_yen":PROTECT_AMOUNT,
+              "direction":"contrarian current close move"},
+      "rolling":summarize(rows),
+      "first_half":summarize(rows[:split]),
+      "second_half":summarize(rows[split:]),
+      "non_overlapping":summarize(non),
+      "top_campaigns":sorted(rows,key=lambda x:x["best_value_yen"],reverse=True)[:12]
     },ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
