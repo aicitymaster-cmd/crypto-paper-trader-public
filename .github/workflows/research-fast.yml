@@ -9,6 +9,7 @@ on:
       - jpx_mini_option_event_features.py
       - jpx_mini_option_event_gate_validate.py
       - jpx_scheduled_event_strangle_check.py
+      - jpx_post_shock_continuation_check.py
       - .github/workflows/research-fast.yml
 
 permissions: {}
@@ -48,6 +49,13 @@ jobs:
           set -euo pipefail
           if [ -f repo/jpx_scheduled_event_strangle_check.py ]; then
             python3 repo/jpx_scheduled_event_strangle_check.py
+          fi
+      - name: Run post-shock continuation if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f repo/jpx_post_shock_continuation_check.py ]; then
+            python3 repo/jpx_post_shock_continuation_check.py
           fi
       - name: Run frozen event gate validation if present
         shell: bash
