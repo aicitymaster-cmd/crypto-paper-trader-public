@@ -77,6 +77,12 @@ jobs:
           set -euo pipefail
           python3 repo/gbpjpy_ko_50k_cost_check.py | tee gbpjpy-ko-50k-cost.json
 
+      - name: Run three-market 50k portfolio screening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/ko_portfolio_50k_check.py | tee ko-portfolio-50k.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
