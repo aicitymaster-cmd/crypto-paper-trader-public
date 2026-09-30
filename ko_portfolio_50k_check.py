@@ -114,6 +114,13 @@ def main():
     best_target=configs[:20]
     safe=sorted(configs,key=lambda x:(x["below_5000_rate_pct"],-x["target_rate_pct"],-x["median_final_yen"]))[:20]
     balanced=sorted(configs,key=lambda x:(-(x["target_rate_pct"]-x["below_5000_rate_pct"]),-x["target_rate_pct"],-x["median_final_yen"]))[:20]
+    constrained={}
+    for limit in (0,5,10,15,20,25,30):
+        eligible=[x for x in configs if x["below_5000_rate_pct"]<=limit]
+        constrained[str(limit)]=sorted(
+            eligible,
+            key=lambda x:(-x["target_rate_pct"],-x["at_least_10000_rate_pct"],-x["median_final_yen"])
+        )[:5]
     return {
       "paper_only":True,
       "model":"3-market KO portfolio optimistic screening",
@@ -124,6 +131,7 @@ def main():
       "best_target":best_target,
       "safest":safe,
       "balanced":balanced,
+      "best_by_floor_failure_limit_pct":constrained,
     }
 
 if __name__=="__main__":
