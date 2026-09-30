@@ -71,6 +71,12 @@ jobs:
             echo "KO_UPPER_BOUND_50K_RESULT_REUSED"
           fi
 
+      - name: Run GBPJPY KO 50k cost sensitivity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/gbpjpy_ko_50k_cost_check.py | tee gbpjpy-ko-50k-cost.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
@@ -150,5 +156,10 @@ jobs:
             echo '### KO-style upper-bound research'
             echo '~~~json'
             if [ -f .paper_state/ko_upper_bound_50k_v1.json ]; then cat .paper_state/ko_upper_bound_50k_v1.json; else echo '{"status":"NOT_YET_AVAILABLE"}'; fi
+            echo '~~~'
+            echo
+            echo '### GBPJPY KO 50k cost sensitivity'
+            echo '~~~json'
+            if [ -f gbpjpy-ko-50k-cost.json ]; then cat gbpjpy-ko-50k-cost.json; else echo '{"status":"NOT_AVAILABLE"}'; fi
             echo '~~~'
           } >> "$GITHUB_STEP_SUMMARY"
