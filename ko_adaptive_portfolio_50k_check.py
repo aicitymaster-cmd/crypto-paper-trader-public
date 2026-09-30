@@ -38,17 +38,14 @@ def aligned_windows(bars):
     out=[]
     while cur+timedelta(days=7)<=end:
         days=[]
-        ok=True
         for day in range(7):
             a=cur+timedelta(days=day)
             b=a+timedelta(days=1)
             chunks={m:[x for x in bs if a<=x.ts<b] for m,bs in bars.items()}
-            # Daily slices need enough bars for SMA36.
-            if not all(len(v)>36 for v in chunks.values()):
-                ok=False
-                break
-            days.append(chunks)
-        if ok:
+            # Use only common trading days. Weekends/holidays are skipped.
+            if all(len(v)>36 for v in chunks.values()):
+                days.append(chunks)
+        if len(days)>=4:
             out.append((cur,days))
         cur+=timedelta(days=1)
     return out
@@ -121,7 +118,7 @@ def main():
                 equity=START
                 alloc=dict(initial)
                 hit=False
-                for di in range(7):
+                for di in range(len(days)):
                     if equity<=guard:
                         break
                     mults={
