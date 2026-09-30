@@ -27,11 +27,30 @@ def main():
             csv.append(full)
         if low.endswith(".js") or ".js?" in low:
             js.append(full)
+    refs=[]
+    for pat in (
+        r'[^"' + "'" + r'<>\\s]{0,180}\\.csv[^"' + "'" + r'<>\\s]{0,180}',
+        r'[^"' + "'" + r'<>\\s]{0,180}\\.json[^"' + "'" + r'<>\\s]{0,180}',
+        r'[^"' + "'" + r'<>\\s]{0,180}\\.xml[^"' + "'" + r'<>\\s]{0,180}',
+        r'[^"' + "'" + r'<>\\s]{0,180}(?:ajax|api|option-price)[^"' + "'" + r'<>\\s]{0,180}',
+    ):
+        refs.extend(re.findall(pat,text,re.I))
+    text_snippets=[]
+    low=text.lower()
+    for needle in ("csv","json","xml","ajax","option-price","data-"):
+        pos=0
+        while True:
+            pos=low.find(needle,pos)
+            if pos<0: break
+            text_snippets.append(text[max(0,pos-220):min(len(text),pos+420)])
+            pos+=len(needle)
     print(json.dumps({
         "page":URL,
         "csv_links":sorted(set(csv)),
         "js_links":sorted(set(js)),
         "html_bytes":len(body),
+        "refs":sorted(set(refs))[:200],
+        "snippets":text_snippets[:120],
     },ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
