@@ -1,14 +1,17 @@
-"""Segment full-risk put baskets by DTE and premium band.
+"""Focused full-risk NK225 put basket: DTE 2-4, premium 10-30.
 
-Descriptive research on JPX actual NK225 mini-option closes.
-Full loss of 10,000 JPY is allowed. Exit at first later daily close where
-basket account value reaches >=50,000 JPY.
+This is a single frozen candidate distilled from prior descriptive segmentation:
+- PUT only
+- OTM
+- DTE 2-4 calendar days
+- actual premium 10-30 JPY
+- up to 4 distinct strikes
+- deploy up to the full 10,000 JPY account
+- add extra contracts round-robin across selected strikes while cash permits
+- exit at first later daily close where marked account value >=50,000 JPY
+- otherwise mark through 7 calendar days
 
-Six pre-defined variants:
-- DTE 2-4 / 5-7 / 2-7
-- premium 10-20 / 21-30 JPY
-All variants are PUT-only, OTM, up to 4 distinct strikes, full-account basket.
-No parameter optimization inside a variant.
+Research only. Daily closes do not guarantee executable fills.
 """
 from __future__ import annotations
 import csv, io, json, ssl, urllib.parse, urllib.request
@@ -16,20 +19,16 @@ from datetime import datetime, timedelta
 
 BASE="https://www.jpx.co.jp"
 JSON_URL=BASE+"/automation/markets/derivatives/option-price/json/option_theoretical_price.json"
-UA="crypto-paper-trader-public-put-segments/1.0"
+UA="crypto-paper-trader-public-focused-put-basket/1.0"
 PRODUCT="NK225MWE"
 START=10_000.0
 TARGET=50_000.0
+P_MIN=10.0
+P_MAX=30.0
+DTE_MIN=2
+DTE_MAX=4
 MULT=100.0
 MAX_LEGS=4
-VARIANTS=(
- ("dte2_4_p10_20",2,4,10.0,20.0),
- ("dte2_4_p21_30",2,4,21.0,30.0),
- ("dte5_7_p10_20",5,7,10.0,20.0),
- ("dte5_7_p21_30",5,7,21.0,30.0),
- ("dte2_7_p10_20",2,7,10.0,20.0),
- ("dte2_7_p21_30",2,7,21.0,30.0),
-)
 
 def get(url,accept):
     req=urllib.request.Request(url,method="GET",headers={"User-Agent":UA,"Accept":accept})
@@ -65,18 +64,18 @@ def load():
         daily[day]={"underlying":u,"options":opts}
     return daily
 
-def build(day,book,dmin,dmax,pmin,pmax):
+def build(day,book):
     u=book["underlying"]
     if u is None:return None
     xs=[]
     for o in book["options"].values():
-        if o["strike"] is None or not(pmin<=o["premium"]<=pmax):continue
+        if o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
         if o["strike"]>u:continue
         m=u/o["strike"]-1.0
         try:md=datetime.strptime(o["maturity"],"%Y%m%d").date()
         except:continue
         dte=(md-day).days
-        if not(dmin<=dte<=dmax):continue
+        if not(DTE_MIN<=dte<=DTE_MAX):continue
         xs.append((m,o))
     xs.sort(key=lambda x:(x[0],x[1]["premium"]))
     if not xs:return None
@@ -86,7 +85,8 @@ def build(day,book,dmin,dmax,pmin,pmax):
     for m,o in xs:
         cost=o["premium"]*MULT
         if cost<=cash and len(chosen)<MAX_LEGS:
-            chosen.append({"m":m,"o":o,"qty":1}); cash-=cost
+            chosen.append({"m":m,"o":o,"qty":1})
+            cash-=cost
         if len(chosen)>=MAX_LEGS:break
     if not chosen:return None
 
@@ -96,7 +96,9 @@ def build(day,book,dmin,dmax,pmin,pmax):
         for leg in chosen:
             cost=leg["o"]["premium"]*MULT
             if cost<=cash:
-                leg["qty"]+=1; cash-=cost; progress=True
+                leg["qty"]+=1
+                cash-=cost
+                progress=True
     return {"legs":chosen,"cash":cash,"spent":START-cash}
 
 def run(day,basket,daily,dates):
@@ -138,33 +140,32 @@ def summarize(rows):
 
 def main():
     daily=load(); dates=sorted(daily)
-    out={}
-    for name,dmin,dmax,pmin,pmax in VARIANTS:
-        rows=[]
-        for day in dates:
-            basket=build(day,daily[day],dmin,dmax,pmin,pmax)
-            if not basket:continue
-            r=run(day,basket,daily,dates)
-            if r:rows.append(r)
-        split=len(rows)//2
-        non=[]; nxt=None
-        for r in rows:
-            d=datetime.strptime(r["entry_date"],"%Y%m%d").date()
-            if nxt is None or d>=nxt:
-                non.append(r); nxt=d+timedelta(days=7)
-        out[name]={
-          "params":{"dte":[dmin,dmax],"premium":[pmin,pmax]},
-          "all":summarize(rows),
-          "first_half":summarize(rows[:split]),
-          "second_half":summarize(rows[split:]),
-          "non_overlapping":summarize(non),
-          "hits":[r for r in rows if r["target_hit"]]
-        }
+    rows=[]
+    for day in dates:
+        b=build(day,daily[day])
+        if not b:continue
+        r=run(day,b,daily,dates)
+        if r:rows.append(r)
+    split=len(rows)//2
+    first=rows[:split]
+    second=rows[split:]
+    non=[]; nxt=None
+    for r in rows:
+        d=datetime.strptime(r["entry_date"],"%Y%m%d").date()
+        if nxt is None or d>=nxt:
+            non.append(r); nxt=d+timedelta(days=7)
     print(json.dumps({
       "paper_only":True,
       "source":"JPX actual daily NK225 mini-option closes",
-      "start_yen":START,"target_yen":TARGET,
-      "variants":out
+      "rule":{"side":"put","dte":[DTE_MIN,DTE_MAX],
+              "premium":[P_MIN,P_MAX],"max_distinct_strikes":MAX_LEGS,
+              "start_yen":START,"target_exit_yen":TARGET,"full_loss_allowed":True},
+      "all":summarize(rows),
+      "first_half":summarize(first),
+      "second_half":summarize(second),
+      "non_overlapping":summarize(non),
+      "hits":[r for r in rows if r["target_hit"]],
+      "top_entries":sorted(rows,key=lambda x:x["best_value_yen"],reverse=True)[:12]
     },ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
