@@ -7,6 +7,7 @@ on:
       - mini-option-variable-risk
     paths:
       - jpx_variable_risk_strangle_check.py
+      - jpx_tuesday_signal.py
       - .github/workflows/variable-risk-research.yml
 
 permissions: {}
@@ -34,8 +35,14 @@ jobs:
           python3 security_guard.py .
           python3 -m unittest discover -q
 
-      - name: Run variable-risk research
+      - name: Run archive validation
         shell: bash
         run: |
           set -euo pipefail
           python3 repo/jpx_variable_risk_strangle_check.py
+
+      - name: Run read-only Tuesday signal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_tuesday_signal.py
