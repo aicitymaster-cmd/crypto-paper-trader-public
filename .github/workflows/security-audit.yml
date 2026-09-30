@@ -143,6 +143,12 @@ jobs:
           set -euo pipefail
           python3 repo/jpx_mini_option_strangle_check.py | tee jpx-mini-option-strangle.json
 
+      - name: Test no-lookahead directional JPX mini options
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_mini_option_directional_check.py | tee jpx-mini-option-directional.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
