@@ -194,6 +194,14 @@ def main():
             expiry_weekday_groups[str(md.weekday())].append(r)
     mon_tue=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date().weekday() in (0,1)]
     hold_mon_tue=[r for r in hold if datetime.strptime(r["entry_date"],"%Y%m%d").date().weekday() in (0,1)]
+    hold_weekday_groups={str(i):[] for i in range(5)}
+    disc_weekday_groups={str(i):[] for i in range(5)}
+    for r in hold:
+        d=datetime.strptime(r["entry_date"],"%Y%m%d").date()
+        hold_weekday_groups[str(d.weekday())].append(r)
+    for r in disc:
+        d=datetime.strptime(r["entry_date"],"%Y%m%d").date()
+        disc_weekday_groups[str(d.weekday())].append(r)
     print(json.dumps({
       "paper_only":True,
       "source":"JPX direct daily CSV archive",
@@ -220,6 +228,12 @@ def main():
                            "4_fri":summarize(expiry_weekday_groups["4"])},
       "entry_mon_or_tue":summarize(mon_tue),
       "holdout_jan_jun_entry_mon_or_tue":summarize(hold_mon_tue),
+      "holdout_jan_jun_by_weekday":{"0_mon":summarize(hold_weekday_groups["0"]),
+                                    "1_tue":summarize(hold_weekday_groups["1"]),
+                                    "2_wed":summarize(hold_weekday_groups["2"])},
+      "discovery_jul_sep_by_weekday":{"0_mon":summarize(disc_weekday_groups["0"]),
+                                      "1_tue":summarize(disc_weekday_groups["1"]),
+                                      "2_wed":summarize(disc_weekday_groups["2"])},
       "holdout_hits":[r for r in hold if r["target_hit"]],
       "all_hits":[r for r in rows if r["target_hit"]]
     },ensure_ascii=False,sort_keys=True))
