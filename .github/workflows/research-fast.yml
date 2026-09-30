@@ -6,7 +6,7 @@ on:
     branches:
       - ko-50k-direct-check
     paths:
-      - jpx_post_shock_continuation_check.py
+      - jpx_half_risk_strangle_check.py
       - .github/workflows/research-fast.yml
 
 permissions: {}
@@ -34,8 +34,8 @@ jobs:
           python3 security_guard.py .
           python3 -m unittest discover -q
 
-      - name: Run post-shock continuation
+      - name: Run half-risk strangle check
         shell: bash
         run: |
           set -euo pipefail
-          python3 repo/jpx_post_shock_continuation_check.py
+          python3 repo/jpx_half_risk_strangle_check.py
