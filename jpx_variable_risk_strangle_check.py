@@ -1,34 +1,37 @@
-"""Full-concentration one-shot NK225 mini-option research.
+"""Full-risk one-side basket with 5x account take-profit.
 
-Risk tolerance: total loss of the 10,000 JPY account is allowed.
+Risk tolerance: total loss allowed.
 
-For each eligible JPX business day:
-- Direction uses only the PRIOR business-day move (day -1 vs day -2).
-- Four pre-registered rules: momentum, contrarian, put_only, call_only.
-- Choose one OTM NK225 mini option with actual premium 10-30 JPY
-  (=1,000-3,000 JPY per contract), DTE 2-7 calendar days.
-- Selection within a side: lowest premium first, then closest OTM strike.
-- Spend as much of the 10,000 JPY account as possible on multiple contracts
-  of that single option. Unused remainder stays cash.
-- Track the same option for up to 7 calendar days using later actual JPX closes.
-- Success if marked account value reaches >=50,000 JPY at a later daily close.
+For each eligible business day:
+- Direction uses only PRIOR business-day move:
+  momentum or contrarian. Put-only/call-only are included as baselines.
+- Eligible NK225 mini options: OTM, premium 10-30 JPY, DTE 2-7 days.
+- Spend up to the full 10,000 JPY account on a basket of up to 4 different
+  strikes on the chosen side.
+- Prefer max number of legs, then closest total moneyness, then higher spend.
+- Quantity is one contract per selected strike first; if cash remains, add
+  extra contracts round-robin from closest OTM outward until no eligible unit fits.
+- At each later daily close up to 7 calendar days, mark the whole basket.
+- If marked account equity reaches >=50,000 JPY, exit everything at that close
+  and record 50,000+ as a target hit.
 
 Research only. Daily closes do not guarantee executable fills.
 """
 from __future__ import annotations
-import csv, io, json, ssl, urllib.parse, urllib.request
+import csv, io, itertools, json, ssl, urllib.parse, urllib.request
 from datetime import datetime, timedelta
 
 BASE="https://www.jpx.co.jp"
 JSON_URL=BASE+"/automation/markets/derivatives/option-price/json/option_theoretical_price.json"
-UA="crypto-paper-trader-public-full-concentration/1.0"
+UA="crypto-paper-trader-public-full-risk-basket/1.0"
 PRODUCT="NK225MWE"
 START=10_000.0
 TARGET=50_000.0
 P_MIN=10.0
 P_MAX=30.0
 MULT=100.0
-RULES=("momentum","contrarian","put_only","call_only")
+MAX_LEGS=4
+RULES=("contrarian","momentum","put_only","call_only")
 
 def get(url,accept):
     req=urllib.request.Request(url,method="GET",headers={"User-Agent":UA,"Accept":accept})
@@ -66,13 +69,22 @@ def load():
         daily[day]={"underlying":u,"options":opts}
     return daily
 
-def choose(day,book,side):
+def direction(rule,daily,dates,i):
+    if rule=="put_only":return "put"
+    if rule=="call_only":return "call"
+    if i<2:return None
+    p1=daily[dates[i-1]]["underlying"]
+    p2=daily[dates[i-2]]["underlying"]
+    if p1 is None or p2 is None or p1==p2:return None
+    up=p1>p2
+    return ("call" if up else "put") if rule=="momentum" else ("put" if up else "call")
+
+def candidates(day,book,side):
     u=book["underlying"]
-    if u is None:return None
+    if u is None:return []
     xs=[]
     for o in book["options"].values():
-        if o["side"]!=side or o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):
-            continue
+        if o["side"]!=side or o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
         if side=="call":
             if o["strike"]<u:continue
             m=o["strike"]/u-1.0
@@ -83,67 +95,80 @@ def choose(day,book,side):
         except:continue
         dte=(md-day).days
         if not(2<=dte<=7):continue
-        xs.append((o["premium"],m,dte,o))
-    if not xs:return None
-    xs.sort(key=lambda x:(x[0],x[1],x[2]))
-    return xs[0][3]
+        xs.append((m,o))
+    xs.sort(key=lambda x:(x[0],x[1]["premium"]))
+    return xs
 
-def direction(rule,daily,dates,i):
-    if rule=="put_only":return "put"
-    if rule=="call_only":return "call"
-    if i<2:return None
-    p1=daily[dates[i-1]]["underlying"]
-    p2=daily[dates[i-2]]["underlying"]
-    if p1 is None or p2 is None or p1==p2:return None
-    up=p1>p2
-    if rule=="momentum":
-        return "call" if up else "put"
-    return "put" if up else "call"
+def build_basket(day,book,side):
+    xs=candidates(day,book,side)
+    if not xs:return None
+    # First take up to four nearest OTM strikes that can each fit once.
+    selected=[]
+    cash=START
+    for m,o in xs:
+        cost=o["premium"]*MULT
+        if cost<=cash and len(selected)<MAX_LEGS:
+            selected.append({"m":m,"o":o,"qty":1})
+            cash-=cost
+        if len(selected)>=MAX_LEGS:break
+    if not selected:return None
+    # Reinvest remaining cash round-robin across selected strikes, closest first.
+    progress=True
+    while progress:
+        progress=False
+        for leg in selected:
+            cost=leg["o"]["premium"]*MULT
+            if cost<=cash:
+                leg["qty"]+=1
+                cash-=cost
+                progress=True
+    return {"legs":selected,"cash":cash,"spent":START-cash}
 
 def run_entry(rule,daily,dates,i):
     day=dates[i]
     side=direction(rule,daily,dates,i)
     if not side:return None
-    o=choose(day,daily[day],side)
-    if not o:return None
-    unit_cost=o["premium"]*MULT
-    qty=int(START//unit_cost)
-    if qty<1:return None
-    spent=qty*unit_cost
-    cash=START-spent
+    basket=build_basket(day,daily[day],side)
+    if not basket:return None
     marks=[]
     for d in dates:
         if d<=day or d>day+timedelta(days=7):continue
-        x=daily[d]["options"].get(o["code"])
-        value=cash+(x["premium"]*MULT*qty if x else 0.0)
-        marks.append((d,value,(x["premium"] if x else 0.0)))
+        ob=daily[d]["options"]
+        value=basket["cash"]
+        for leg in basket["legs"]:
+            x=ob.get(leg["o"]["code"])
+            if x:value+=x["premium"]*MULT*leg["qty"]
+        marks.append((d,value))
+        if value>=TARGET:
+            break
     if not marks:return None
-    best=max(marks,key=lambda x:x[1])
-    last=marks[-1]
+    best=max(marks,key=lambda x:x[1]); last=marks[-1]
     return {
       "entry_date":day.strftime("%Y%m%d"),"rule":rule,"side":side,
-      "code":o["code"],"maturity":o["maturity"],"strike":o["strike"],
-      "entry_premium":o["premium"],"unit_cost_yen":unit_cost,"qty":qty,
-      "spent_yen":spent,"cash_left_yen":cash,
-      "best_date":best[0].strftime("%Y%m%d"),"best_premium":best[2],
-      "best_value_yen":round(best[1],2),"target_hit":best[1]>=TARGET,
-      "final_date":last[0].strftime("%Y%m%d"),"final_value_yen":round(last[1],2)
+      "spent_yen":round(basket["spent"],2),"cash_left_yen":round(basket["cash"],2),
+      "legs":[{"code":x["o"]["code"],"premium":x["o"]["premium"],
+               "strike":x["o"]["strike"],"maturity":x["o"]["maturity"],
+               "qty":x["qty"]} for x in basket["legs"]],
+      "best_date":best[0].strftime("%Y%m%d"),"best_value_yen":round(best[1],2),
+      "target_hit":best[1]>=TARGET,
+      "exit_date":last[0].strftime("%Y%m%d"),
+      "exit_value_yen":round(last[1],2)
     }
 
 def summarize(rows):
     n=len(rows)
     if not n:return {"entries":0}
-    finals=sorted(r["final_value_yen"] for r in rows)
+    exits=sorted(r["exit_value_yen"] for r in rows)
     return {
       "entries":n,
       "target_hits":sum(r["target_hit"] for r in rows),
       "target_rate_pct":round(100*sum(r["target_hit"] for r in rows)/n,4),
       "best_at_least_20000_rate_pct":round(100*sum(r["best_value_yen"]>=20000 for r in rows)/n,4),
-      "final_zero_rate_pct":round(100*sum(r["final_value_yen"]==0 for r in rows)/n,4),
-      "final_below_5000_rate_pct":round(100*sum(r["final_value_yen"]<5000 for r in rows)/n,4),
-      "median_final_yen":round(finals[n//2] if n%2 else (finals[n//2-1]+finals[n//2])/2,2),
+      "exit_zero_rate_pct":round(100*sum(r["exit_value_yen"]==0 for r in rows)/n,4),
+      "exit_below_5000_rate_pct":round(100*sum(r["exit_value_yen"]<5000 for r in rows)/n,4),
+      "median_exit_yen":round(exits[n//2] if n%2 else (exits[n//2-1]+exits[n//2])/2,2),
       "best_value_yen":round(max(r["best_value_yen"] for r in rows),2),
-      "worst_final_yen":round(min(finals),2)
+      "worst_exit_yen":round(min(exits),2)
     }
 
 def main():
@@ -171,9 +196,9 @@ def main():
       "paper_only":True,
       "source":"JPX actual daily NK225 mini-option closes",
       "rule":{"start_yen":START,"full_loss_allowed":True,
-              "premium_range_yen":[P_MIN,P_MAX],
-              "unit_cost_yen":[P_MIN*MULT,P_MAX*MULT],
-              "dte_days":[2,7],"single_option_multi_contract":True,
+              "premium_range_yen":[P_MIN,P_MAX],"dte_days":[2,7],
+              "max_distinct_strikes":MAX_LEGS,
+              "target_exit_yen":TARGET,
               "direction_uses_prior_business_day_only":True},
       "results":results
     },ensure_ascii=False,sort_keys=True))
