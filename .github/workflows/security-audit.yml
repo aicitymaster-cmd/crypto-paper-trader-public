@@ -42,6 +42,19 @@ jobs:
           python3 security_guard.py .
           python3 -m unittest discover -q
 
+      - name: Run one-time cross-market historical PAPER research
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .paper_state
+          if [ ! -s .paper_state/cross_market_public_v1.json ]; then
+            tmp="$(mktemp)"
+            python3 repo/cross_market_public_run.py | tee "$tmp"
+            mv "$tmp" .paper_state/cross_market_public_v1.json
+          else
+            echo "CROSS_MARKET_RESULT_REUSED"
+          fi
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
@@ -111,5 +124,10 @@ jobs:
             echo '### Five-minute strategies'
             echo '~~~json'
             if [ -f paper-summary.json ]; then cat paper-summary.json; else echo '{"status":"SKIPPED_AFTER_END"}'; fi
+            echo '~~~'
+            echo
+            echo '### Cross-market 7-day research'
+            echo '~~~json'
+            if [ -f .paper_state/cross_market_public_v1.json ]; then cat .paper_state/cross_market_public_v1.json; else echo '{"status":"NOT_YET_AVAILABLE"}'; fi
             echo '~~~'
           } >> "$GITHUB_STEP_SUMMARY"
