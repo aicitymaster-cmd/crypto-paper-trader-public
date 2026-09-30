@@ -125,6 +125,12 @@ jobs:
           set -euo pipefail
           python3 repo/jpx_option_csv_discovery.py | tee jpx-option-csv-discovery.json
 
+      - name: Inspect JPX option CSV structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_option_csv_inspect.py | tee jpx-option-csv-inspect.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
