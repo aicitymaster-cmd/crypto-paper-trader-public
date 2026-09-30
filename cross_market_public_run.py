@@ -202,4 +202,7 @@ def run_all() -> dict:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_all(), ensure_ascii=False, sort_keys=True))
+    data = run_all()
+    print(json.dumps(data, ensure_ascii=False, sort_keys=True))
+    if data["failures"]:
+        raise SystemExit(2)
