@@ -119,6 +119,12 @@ jobs:
           set -euo pipefail
           python3 repo/four_market_long_50k_check.py | tee four-market-long-50k.json
 
+      - name: Discover JPX option CSV links
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_option_csv_discovery.py | tee jpx-option-csv-discovery.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
