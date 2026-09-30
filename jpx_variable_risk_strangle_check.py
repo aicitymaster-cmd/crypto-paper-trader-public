@@ -182,9 +182,18 @@ def main():
     hold=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()<=HOLDOUT_END]
     disc=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()>HOLDOUT_END]
     years={}
+    weekday_groups={str(i):[] for i in range(5)}
+    expiry_weekday_groups={str(i):[] for i in range(5)}
     for r in rows:
         m=r["entry_date"][:6]
         years.setdefault(m,[]).append(r)
+        ed=datetime.strptime(r["entry_date"],"%Y%m%d").date()
+        weekday_groups[str(ed.weekday())].append(r)
+        if r["legs"]:
+            md=datetime.strptime(r["legs"][0]["maturity"],"%Y%m%d").date()
+            expiry_weekday_groups[str(md.weekday())].append(r)
+    mon_tue=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date().weekday() in (0,1)]
+    hold_mon_tue=[r for r in hold if datetime.strptime(r["entry_date"],"%Y%m%d").date().weekday() in (0,1)]
     print(json.dumps({
       "paper_only":True,
       "source":"JPX direct daily CSV archive",
@@ -199,6 +208,18 @@ def main():
       "all_jan_sep":summarize(rows),
       "all_nonoverlap":summarize(nonoverlap(rows)),
       "by_month":{m:summarize(v) for m,v in sorted(years.items())},
+      "by_entry_weekday":{"0_mon":summarize(weekday_groups["0"]),
+                          "1_tue":summarize(weekday_groups["1"]),
+                          "2_wed":summarize(weekday_groups["2"]),
+                          "3_thu":summarize(weekday_groups["3"]),
+                          "4_fri":summarize(weekday_groups["4"])},
+      "by_expiry_weekday":{"0_mon":summarize(expiry_weekday_groups["0"]),
+                           "1_tue":summarize(expiry_weekday_groups["1"]),
+                           "2_wed":summarize(expiry_weekday_groups["2"]),
+                           "3_thu":summarize(expiry_weekday_groups["3"]),
+                           "4_fri":summarize(expiry_weekday_groups["4"])},
+      "entry_mon_or_tue":summarize(mon_tue),
+      "holdout_jan_jun_entry_mon_or_tue":summarize(hold_mon_tue),
       "holdout_hits":[r for r in hold if r["target_hit"]],
       "all_hits":[r for r in rows if r["target_hit"]]
     },ensure_ascii=False,sort_keys=True))
