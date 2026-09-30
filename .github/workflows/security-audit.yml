@@ -95,6 +95,12 @@ jobs:
           set -euo pipefail
           python3 repo/ko_profit_lock_50k_check.py | tee ko-profit-lock-50k.json
 
+      - name: Run frozen-strategy 50k holdout validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/ko_holdout_50k_check.py | tee ko-holdout-50k.json
+
       - name: Resolve two-hour campaign window
         id: window
         shell: bash
