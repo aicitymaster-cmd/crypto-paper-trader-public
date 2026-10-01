@@ -13,7 +13,7 @@ class ForwardSignalTests(unittest.TestCase):
             p=price*(1+0.0005*i)
             bars.append(Bar(ts,p,p,p,p))
         # Thursday 16 UTC on Oct 1 exists as final matching bar
-        out=evaluate(bars)
+        out=evaluate(bars,now=datetime(2026,10,1,17,tzinfo=timezone.utc))
         self.assertIn(out["status"],("ELIGIBLE","NOT_ELIGIBLE"))
         self.assertTrue(out["parameters_frozen"])
 
