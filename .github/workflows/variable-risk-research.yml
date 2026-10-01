@@ -11,6 +11,8 @@ on:
       - four_block_gold_stability.py
       - staged_profit_lock_research.py
       - ig_gold_ko_realistic.py
+      - ig_gold_ko_stress.py
+      - test_ig_gold_ko_stress.py
       - test_ig_gold_ko_realistic.py
       - test_staged_profit_lock_research.py
       - test_four_block_gold_stability.py
@@ -44,6 +46,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run IG-style GOLD KO cost stress
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/ig_gold_ko_stress.py
 
       - name: Run IG-style GOLD KO realistic research
         shell: bash
