@@ -10,6 +10,8 @@ on:
       - ig_gold_ko_stress.py
       - ig_gold_ko_funding_stress.py
       - gold_ko_stat_robustness.py
+      - frozen_gold_forward_signal.py
+      - test_frozen_gold_forward_signal.py
       - test_gold_ko_stat_robustness.py
       - test_ig_gold_ko_funding_stress.py
       - test_ig_gold_ko_realistic.py
@@ -40,6 +42,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run frozen GOLD forward signal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/frozen_gold_forward_signal.py
 
       - name: Run GOLD KO statistical robustness
         shell: bash
