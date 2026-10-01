@@ -10,6 +10,8 @@ on:
       - jpx_tuesday_signal.py
       - jpx_thufri_signal.py
       - diversified_7d_research.py
+      - aggressive_target_research.py
+      - test_aggressive_target_research.py
       - test_diversified_7d_research.py
       - .github/workflows/variable-risk-research.yml
 
@@ -37,6 +39,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run aggressive zero-allowed target research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/aggressive_target_research.py
 
       - name: Run diversified 7-day portfolio research
         shell: bash
