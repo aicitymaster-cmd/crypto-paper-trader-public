@@ -7,6 +7,8 @@ on:
       - mini-option-variable-risk
     paths:
       - long_horizon_gold_validation.py
+      - conditional_gold_research.py
+      - test_conditional_gold_research.py
       - test_long_horizon_gold_validation.py
       - .github/workflows/variable-risk-research.yml
 
@@ -34,6 +36,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run conditional GOLD filter research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/conditional_gold_research.py
 
       - name: Run long-horizon GOLD validation
         shell: bash
