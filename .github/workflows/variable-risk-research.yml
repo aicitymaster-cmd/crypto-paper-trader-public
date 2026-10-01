@@ -6,20 +6,10 @@ on:
     branches:
       - mini-option-variable-risk
     paths:
-      - long_horizon_gold_validation.py
-      - gold_filter_holdout.py
-      - four_block_gold_stability.py
-      - staged_profit_lock_research.py
       - ig_gold_ko_realistic.py
       - ig_gold_ko_stress.py
-      - test_ig_gold_ko_stress.py
       - test_ig_gold_ko_realistic.py
-      - test_staged_profit_lock_research.py
-      - test_four_block_gold_stability.py
-      - test_gold_filter_holdout.py
-      - conditional_gold_research.py
-      - test_conditional_gold_research.py
-      - test_long_horizon_gold_validation.py
+      - test_ig_gold_ko_stress.py
       - .github/workflows/variable-risk-research.yml
 
 permissions: {}
@@ -58,33 +48,3 @@ jobs:
         run: |
           set -euo pipefail
           python3 repo/ig_gold_ko_realistic.py
-
-      - name: Run staged profit-lock research
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/staged_profit_lock_research.py
-
-      - name: Run four-block GOLD stability
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/four_block_gold_stability.py
-
-      - name: Run frozen GOLD filter holdout
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/gold_filter_holdout.py
-
-      - name: Run conditional GOLD filter research
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/conditional_gold_research.py
-
-      - name: Run long-horizon GOLD validation
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/long_horizon_gold_validation.py
