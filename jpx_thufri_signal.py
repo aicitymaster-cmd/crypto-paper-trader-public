@@ -1,9 +1,16 @@
-"""Read-only Thu/Fri candidate-B signal.
+"""Read-only Thursday/Friday candidate-B signal.
 
 No orders, no auth, no broker access.
-- Thursday: CALL, exact DTE 6, Wednesday expiry
-- Friday: CALL, exact DTE 5, Wednesday expiry
-- premium 10-30 JPY, OTM, up to 4 strikes, budget 10,000 JPY
+
+Frozen candidate B:
+- Thursday: CALL, DTE 6 (next Wednesday)
+- Friday: CALL, DTE 5 or 7 (next Wednesday or next Friday)
+- OTM
+- actual premium 10-30 JPY
+- up to 4 distinct strikes
+- budget 10,000 JPY
+
+Research only. Daily closing data do not guarantee executable fills.
 """
 from __future__ import annotations
 import csv, io, json, ssl, urllib.parse, urllib.request
@@ -11,7 +18,7 @@ from datetime import datetime
 
 BASE="https://www.jpx.co.jp"
 JSON_URL=BASE+"/automation/markets/derivatives/option-price/json/option_theoretical_price.json"
-UA="crypto-paper-trader-public-thufri-signal/1.0"
+UA="crypto-paper-trader-public-thufri-signal/2.0"
 PRODUCT="NK225MWE"
 START=10_000.0
 P_MIN=10.0
@@ -37,8 +44,11 @@ def num(s):
 def latest_file():
     listing=json.loads(get(JSON_URL,"application/json").decode("utf-8","replace"))
     rows=listing.get("TableDatas") or []
+    if not rows: raise RuntimeError("NO_JPX_LISTING")
     item=max(rows,key=lambda x:str(x.get("TradeDate","")))
-    ds=str(item.get("TradeDate","")); path=item.get("File")
+    ds=str(item.get("TradeDate",""))
+    path=item.get("File")
+    if not ds or not path: raise RuntimeError("BAD_JPX_LISTING_ROW")
     return datetime.strptime(ds,"%Y%m%d").date(),urllib.parse.urljoin(BASE,path)
 
 def load(url):
@@ -51,11 +61,11 @@ def load(url):
         code=r[10].strip(); p=num(r[11])
         if code and p is not None and p>0:
             calls[code]={"code":code,"premium":p,"strike":strike,"maturity":maturity}
+    if u is None: raise RuntimeError("NO_UNDERLYING")
     return {"underlying":u,"call":calls}
 
-def build(day,book,exact_dte):
+def build(day,book,allowed_dtes):
     u=book["underlying"]
-    if u is None:return None
     xs=[]
     for o in book["call"].values():
         if o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
@@ -63,7 +73,7 @@ def build(day,book,exact_dte):
         m=o["strike"]/u-1.0
         try:md=datetime.strptime(o["maturity"],"%Y%m%d").date()
         except:continue
-        if (md-day).days!=exact_dte or md.weekday()!=2:continue
+        if (md-day).days not in allowed_dtes:continue
         xs.append((m,o))
     xs.sort(key=lambda x:(x[0],x[1]["premium"]))
     if not xs:return None
@@ -85,28 +95,47 @@ def build(day,book,exact_dte):
 
 def main():
     day,url=latest_file()
-    out={"paper_only":True,"trade_date":day.isoformat(),"weekday":day.strftime("%A"),"source":url}
-    if day.weekday()==3: dte=6
-    elif day.weekday()==4: dte=5
+    out={"paper_only":True,"trade_date":day.isoformat(),
+         "weekday":day.strftime("%A"),"source":url}
+
+    if day.weekday()==3:
+        allowed={6}
+        expiry_note="next Wednesday"
+    elif day.weekday()==4:
+        allowed={5,7}
+        expiry_note="next Wednesday or next Friday"
     else:
         out["signal"]="NO_SIGNAL_NOT_THU_OR_FRI"
-        print(json.dumps(out,ensure_ascii=False,sort_keys=True)); return
+        print(json.dumps(out,ensure_ascii=False,sort_keys=True))
+        return
+
     book=load(url)
-    b=build(day,book,dte)
-    out["frozen_rule"]={"side":"call","exact_dte":dte,"expiry_weekday":"Wednesday",
-                        "premium":[P_MIN,P_MAX],"max_distinct_strikes":MAX_LEGS,
-                        "budget_yen":START}
-    if not b:
+    basket=build(day,book,allowed)
+    out["frozen_rule"]={
+        "side":"call",
+        "allowed_dte":sorted(allowed),
+        "expiry":expiry_note,
+        "premium":[P_MIN,P_MAX],
+        "max_distinct_strikes":MAX_LEGS,
+        "budget_yen":START
+    }
+
+    if not basket:
         out["signal"]="NO_ELIGIBLE_BASKET"
     else:
         out["signal"]="PAPER_CANDIDATE"
         out["underlying"]=book["underlying"]
-        out["spent_yen"]=round(b["spent"],2)
-        out["cash_left_yen"]=round(b["cash"],2)
-        out["legs"]=[{"code":x["o"]["code"],"strike":x["o"]["strike"],
-                       "maturity":x["o"]["maturity"],"premium":x["o"]["premium"],
-                       "unit_cost_yen":x["o"]["premium"]*MULT,"qty":x["qty"]}
-                      for x in b["legs"]]
+        out["spent_yen"]=round(basket["spent"],2)
+        out["cash_left_yen"]=round(basket["cash"],2)
+        out["legs"]=[{
+            "code":x["o"]["code"],
+            "strike":x["o"]["strike"],
+            "maturity":x["o"]["maturity"],
+            "premium":x["o"]["premium"],
+            "unit_cost_yen":x["o"]["premium"]*MULT,
+            "qty":x["qty"]
+        } for x in basket["legs"]]
+
     print(json.dumps(out,ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
