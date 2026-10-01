@@ -9,6 +9,8 @@ on:
       - jpx_variable_risk_strangle_check.py
       - jpx_tuesday_signal.py
       - jpx_thufri_signal.py
+      - diversified_7d_research.py
+      - test_diversified_7d_research.py
       - .github/workflows/variable-risk-research.yml
 
 permissions: {}
@@ -35,6 +37,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run diversified 7-day portfolio research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/diversified_7d_research.py
 
       - name: Run archive validation
         shell: bash
