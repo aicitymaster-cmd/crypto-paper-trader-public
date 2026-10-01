@@ -7,6 +7,8 @@ on:
       - mini-option-variable-risk
     paths:
       - long_horizon_gold_validation.py
+      - gold_filter_holdout.py
+      - test_gold_filter_holdout.py
       - conditional_gold_research.py
       - test_conditional_gold_research.py
       - test_long_horizon_gold_validation.py
@@ -36,6 +38,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run frozen GOLD filter holdout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/gold_filter_holdout.py
 
       - name: Run conditional GOLD filter research
         shell: bash
