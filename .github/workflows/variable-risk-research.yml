@@ -9,6 +9,8 @@ on:
       - long_horizon_gold_validation.py
       - gold_filter_holdout.py
       - four_block_gold_stability.py
+      - staged_profit_lock_research.py
+      - test_staged_profit_lock_research.py
       - test_four_block_gold_stability.py
       - test_gold_filter_holdout.py
       - conditional_gold_research.py
@@ -40,6 +42,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run staged profit-lock research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/staged_profit_lock_research.py
 
       - name: Run four-block GOLD stability
         shell: bash
