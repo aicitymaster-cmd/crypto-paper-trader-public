@@ -45,7 +45,11 @@ def run_window_realistic(bars, ko_pct, lot_step):
     equity_jpy=START_JPY
     trades=0
     ever_ko=False
-    for i in range(SLOW,len(bars)):
+    i=SLOW
+    last_lots=0.0
+    last_ko=0.0
+
+    while i < len(bars)-1 and equity_jpy>0:
         closes=[b.close for b in bars[:i+1]]
         bar=bars[i]
         signal=1 if sma(closes,FAST)>sma(closes,SLOW) else -1
@@ -54,31 +58,35 @@ def run_window_realistic(bars, ko_pct, lot_step):
         option_points=ko_distance+KO_PREMIUM_POINTS+SPREAD_POINTS/2
         budget_usd=equity_jpy/USDJPY
         lots=floor_step(budget_usd/option_points,lot_step)
+        last_lots=lots; last_ko=ko_distance
         if lots<lot_step-1e-12:
-            return R(round(equity_jpy,2),False,ever_ko,0.0,round(ko_distance,2),trades)
+            break
 
-        # One bar trade using signal; exit at KO, 8% favorable move, or next signal flip.
         entry=price
-        entry_i=i
-        for j in range(i+1,len(bars)):
+        exited=False
+        j=i+1
+        while j < len(bars):
             b=bars[j]
             _,high,low,close=b.ohlc()
             adverse=(entry-low) if signal==1 else (high-entry)
             favorable=(high-entry) if signal==1 else (entry-low)
 
+            # Conservative same-bar ordering: if both KO and target are
+            # possible inside one OHLC bar, count the KO first because the
+            # intrabar path is unknown.
             if adverse>=ko_distance:
-                # full option premium at risk is lost
                 equity_jpy=0.0
                 trades+=1
                 ever_ko=True
-                return R(0.0,False,True,lots,round(ko_distance,2),trades)
+                exited=True
+                i=j+1
+                break
 
             favorable_pnl_usd=favorable*lots*POINT_VALUE_USD_PER_LOT
             if equity_jpy+favorable_pnl_usd*USDJPY>=TARGET_JPY:
                 trades+=1
                 return R(TARGET_JPY,True,ever_ko,lots,round(ko_distance,2),trades)
 
-            # close when signal flips
             closes2=[x.close for x in bars[:j+1]]
             sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
             if sig2!=signal:
@@ -86,14 +94,19 @@ def run_window_realistic(bars, ko_pct, lot_step):
                 pnl_jpy=move*lots*POINT_VALUE_USD_PER_LOT*USDJPY
                 equity_jpy=max(0.0,equity_jpy+pnl_jpy)
                 trades+=1
+                exited=True
+                i=j+1
                 break
-        else:
+            j+=1
+
+        if not exited:
             b=bars[-1]
             move=(b.close-entry) if signal==1 else (entry-b.close)
             equity_jpy=max(0.0,equity_jpy+move*lots*USDJPY)
             trades+=1
-            return R(round(equity_jpy,2),equity_jpy>=TARGET_JPY,ever_ko,lots,round(ko_distance,2),trades)
-    return R(round(equity_jpy,2),equity_jpy>=TARGET_JPY,ever_ko,0.0,0.0,trades)
+            i=len(bars)
+
+    return R(round(equity_jpy,2),equity_jpy>=TARGET_JPY,ever_ko,last_lots,round(last_ko,2),trades)
 
 def summ(rows):
     n=len(rows); finals=[r.final_jpy for r in rows]
