@@ -2,6 +2,8 @@ name: variable-risk-research
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '5 16 * * 4'
   push:
     branches:
       - mini-option-variable-risk
