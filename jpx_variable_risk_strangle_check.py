@@ -1,12 +1,14 @@
-"""Discover JPX Daily Report archive data endpoints.
+"""Extract legacy JPX Daily Report OSE archive links for 2025 months.
 
-Read-only HTML/JS inspection only. No auth, no trading.
+Read-only. No authentication or trading.
 """
 from __future__ import annotations
 import json,re,ssl,urllib.parse,urllib.request
 
-URL="https://www.jpx.co.jp/markets/statistics-derivatives/daily/index.html"
-UA="crypto-paper-trader-public-jpx-daily-archive-discovery/1.0"
+BASE="https://www.jpx.co.jp"
+ROOT=BASE+"/automation/markets/statistics-derivatives/daily/json/"
+UA="crypto-paper-trader-public-jpx-legacy-daily-links/1.0"
+MONTHS=("202511","202510","202509","202508")
 
 def get(url):
     req=urllib.request.Request(url,method="GET",headers={"User-Agent":UA,"Accept":"text/html,*/*"})
@@ -14,29 +16,29 @@ def get(url):
         return resp.read(6_000_000).decode("utf-8","replace")
 
 def main():
-    html=get(URL)
-    hrefs=re.findall(r'''(?:href|src)=["']([^"'<>]+)["']''',html,re.I)
-    refs=[]
-    for h in hrefs:
-        full=urllib.parse.urljoin(URL,h)
-        low=full.lower()
-        if any(k in low for k in ("daily","archive","json","xml","csv",".js")):
-            refs.append(full)
-    snippets=[]
-    low=html.lower()
-    for needle in ("archive","daily_report","json","ajax","select","2025"):
-        pos=0
-        while True:
-            pos=low.find(needle,pos)
-            if pos<0:break
-            snippets.append(html[max(0,pos-240):min(len(html),pos+520)])
-            pos+=len(needle)
-    print(json.dumps({
-      "page":URL,
-      "html_bytes":len(html.encode("utf-8")),
-      "refs":sorted(set(refs)),
-      "snippets":snippets[:120]
-    },ensure_ascii=False,sort_keys=True))
+    out={}
+    for month in MONTHS:
+        url=f"{ROOT}daily_report_{month}.html"
+        html=get(url)
+        hrefs=re.findall(r'''href=["']([^"'<>]+)["']''',html,re.I)
+        links=[]
+        for h in hrefs:
+            full=urllib.parse.urljoin(url,h)
+            low=full.lower()
+            if ("ose" in low or "daily" in low) and (low.endswith(".zip") or low.endswith(".pdf")):
+                links.append(full)
+        # Also capture raw path-looking tokens in case links are data attrs.
+        tokens=re.findall(r'''[^"'<>\s]+(?:\.zip|\.pdf)''',html,re.I)
+        for t in tokens:
+            full=urllib.parse.urljoin(url,t)
+            if "ose" in full.lower() or "daily" in full.lower():
+                links.append(full)
+        out[month]={
+          "url":url,
+          "html_bytes":len(html.encode("utf-8")),
+          "links":sorted(set(links))[:500]
+        }
+    print(json.dumps({"paper_only":True,"months":out},ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
     main()
