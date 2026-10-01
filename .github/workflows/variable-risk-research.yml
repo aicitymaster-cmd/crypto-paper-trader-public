@@ -8,6 +8,8 @@ on:
     paths:
       - aggressive_target_research.py
       - aggressive_target_refine.py
+      - long_horizon_gold_validation.py
+      - test_long_horizon_gold_validation.py
       - test_aggressive_target_refine.py
       - test_aggressive_target_research.py
       - .github/workflows/variable-risk-research.yml
@@ -36,6 +38,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run long-horizon GOLD validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/long_horizon_gold_validation.py
 
       - name: Run focused aggressive refinement
         shell: bash
