@@ -9,6 +9,8 @@ on:
       - ig_gold_ko_realistic.py
       - ig_gold_ko_stress.py
       - ig_gold_ko_funding_stress.py
+      - gold_ko_stat_robustness.py
+      - test_gold_ko_stat_robustness.py
       - test_ig_gold_ko_funding_stress.py
       - test_ig_gold_ko_realistic.py
       - test_ig_gold_ko_stress.py
@@ -38,6 +40,12 @@ jobs:
           cd repo
           python3 security_guard.py .
           python3 -m unittest discover -q
+
+      - name: Run GOLD KO statistical robustness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/gold_ko_stat_robustness.py
 
       - name: Run IG-style GOLD KO funding stress
         shell: bash
