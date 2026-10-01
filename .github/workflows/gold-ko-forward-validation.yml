@@ -3,7 +3,7 @@ name: GOLD KO forward validation
 on:
   workflow_dispatch:
   schedule:
-    - cron: '5 16 * * 4'
+    - cron: '5 17 * * 4'
   push:
     branches:
       - gold-ko-forward-clean
