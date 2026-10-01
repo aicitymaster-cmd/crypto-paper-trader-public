@@ -1,0 +1,84 @@
+name: variable-risk-research
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '5 16 * * 4'
+  push:
+    branches:
+      - mini-option-variable-risk
+    paths:
+      - ig_gold_ko_realistic.py
+      - ig_gold_ko_stress.py
+      - ig_gold_ko_funding_stress.py
+      - gold_ko_stat_robustness.py
+      - frozen_gold_forward_signal.py
+      - frozen_gold_order_plan.py
+      - test_frozen_gold_order_plan.py
+      - test_frozen_gold_forward_signal.py
+      - test_gold_ko_stat_robustness.py
+      - test_ig_gold_ko_funding_stress.py
+      - test_ig_gold_ko_realistic.py
+      - test_ig_gold_ko_stress.py
+      - .github/workflows/variable-risk-research.yml
+
+permissions: {}
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact public commit without credentials
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            --max-time 30 --max-filesize 20000000 \
+            "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" \
+            -o repo.tar.gz
+          mkdir repo
+          tar -xzf repo.tar.gz --strip-components=1 -C repo
+          cd repo
+          python3 security_guard.py .
+          python3 -m unittest discover -q
+
+      - name: Build frozen GOLD order plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/frozen_gold_order_plan.py
+
+      - name: Run frozen GOLD forward signal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/frozen_gold_forward_signal.py
+
+      - name: Run GOLD KO statistical robustness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/gold_ko_stat_robustness.py
+
+      - name: Run IG-style GOLD KO funding stress
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/ig_gold_ko_funding_stress.py
+
+      - name: Run IG-style GOLD KO cost stress
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/ig_gold_ko_stress.py
+
+      - name: Run IG-style GOLD KO realistic research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/ig_gold_ko_realistic.py
