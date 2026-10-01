@@ -6,13 +6,8 @@ on:
     branches:
       - mini-option-variable-risk
     paths:
-      - jpx_variable_risk_strangle_check.py
-      - jpx_tuesday_signal.py
-      - jpx_thufri_signal.py
-      - diversified_7d_research.py
       - aggressive_target_research.py
       - test_aggressive_target_research.py
-      - test_diversified_7d_research.py
       - .github/workflows/variable-risk-research.yml
 
 permissions: {}
@@ -45,27 +40,3 @@ jobs:
         run: |
           set -euo pipefail
           python3 repo/aggressive_target_research.py
-
-      - name: Run diversified 7-day portfolio research
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/diversified_7d_research.py
-
-      - name: Run archive validation
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/jpx_variable_risk_strangle_check.py
-
-      - name: Run read-only Thu/Fri signal
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/jpx_thufri_signal.py
-
-      - name: Run read-only Tuesday signal
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 repo/jpx_tuesday_signal.py
