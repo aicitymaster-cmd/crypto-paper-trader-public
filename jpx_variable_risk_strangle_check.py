@@ -1,18 +1,27 @@
-"""Structural check of frozen Tuesday PUT candidate.
+"""Actionable non-Tuesday weekday screen for NK225 mini options.
 
-Compare:
-A) Tuesday PUT basket, DTE 2-4, premium 10-30 (existing candidate)
-B) Tuesday PUT basket restricted to Friday expiry / exactly 3 calendar days
+Frozen Tuesday candidate is NOT modified here.
+
+Pre-registered weekday structures:
+- Monday: expiry in 2 calendar days (Wednesday)
+- Thursday: expiry in 1 calendar day (Friday)
+- Friday: expiry in 5 calendar days (Wednesday)
+For each weekday/DTE, compare PUT-only and CALL-only.
 
 Common mechanics:
-- OTM puts
+- OTM
+- actual premium 10-30 JPY
 - up to 4 distinct strikes
 - deploy up to 10,000 JPY
 - exit at first later daily close where account >=50,000 JPY
+- otherwise mark through 7 calendar days
 - archive 2025-12-01 through 2026-09-30
 
-This is a structural simplification check, not a claim that the restricted
-variant is superior. Research only.
+Results split:
+- early: 2025-12 through 2026-04
+- late: 2026-05 through 2026-09
+
+Research only. Daily closes do not guarantee executable fills.
 """
 from __future__ import annotations
 import csv, io, json, ssl, urllib.error, urllib.request
@@ -20,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
 BASE="https://www.jpx.co.jp/automation/markets/derivatives/option-price/files/"
-UA="crypto-paper-trader-public-tuesday-friday-structure/1.0"
+UA="crypto-paper-trader-public-weekday-actionable/1.0"
 PRODUCT="NK225MWE"
 START=10_000.0
 TARGET=50_000.0
@@ -30,7 +39,16 @@ MULT=100.0
 MAX_LEGS=4
 START_DATE=date(2025,12,1)
 END_DATE=date(2026,9,30)
-SPLIT=date(2026,7,1)
+LATE_START=date(2026,5,1)
+
+VARIANTS=(
+ ("mon_put_dte2",0,"put",2),
+ ("mon_call_dte2",0,"call",2),
+ ("thu_put_dte1",3,"put",1),
+ ("thu_call_dte1",3,"call",1),
+ ("fri_put_dte5",4,"put",5),
+ ("fri_call_dte5",4,"call",5),
+)
 
 def weekdays(a,b):
     d=a
@@ -63,16 +81,17 @@ def num(s):
 
 def parse(body):
     rows=list(csv.reader(io.StringIO(dec(body))))
-    opts={}; u=None
+    puts={}; calls={}; u=None
     for r in rows:
         if len(r)<17 or r[0].strip()!=PRODUCT:continue
         strike=num(r[3]); uu=num(r[15]); maturity=r[2].strip()
         if uu is not None:u=uu
-        code=r[5].strip(); p=num(r[6])
-        if code and p is not None and p>0:
-            opts[code]={"code":code,"premium":p,"strike":strike,"maturity":maturity}
-    if u is None or not opts:return None
-    return {"underlying":u,"options":opts}
+        for side,ci,pi,target in (("put",5,6,puts),("call",10,11,calls)):
+            code=r[ci].strip(); p=num(r[pi])
+            if code and p is not None and p>0:
+                target[code]={"code":code,"premium":p,"strike":strike,"maturity":maturity}
+    if u is None:return None
+    return {"underlying":u,"put":puts,"call":calls}
 
 def load():
     daily={}
@@ -85,20 +104,19 @@ def load():
                 if p:daily[day]=p
     return daily
 
-def build(day,book,exact3):
-    if day.weekday()!=1:return None
+def build(day,book,side,dte_exact):
     u=book["underlying"]; xs=[]
-    for o in book["options"].values():
+    for o in book[side].values():
         if o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
-        if o["strike"]>u:continue
-        m=u/o["strike"]-1.0
+        if side=="put":
+            if o["strike"]>u:continue
+            m=u/o["strike"]-1.0
+        else:
+            if o["strike"]<u:continue
+            m=o["strike"]/u-1.0
         try:md=datetime.strptime(o["maturity"],"%Y%m%d").date()
         except:continue
-        dte=(md-day).days
-        if exact3:
-            if dte!=3 or md.weekday()!=4:continue
-        else:
-            if not(2<=dte<=4):continue
+        if (md-day).days!=dte_exact:continue
         xs.append((m,o))
     xs.sort(key=lambda x:(x[0],x[1]["premium"]))
     if not xs:return None
@@ -118,11 +136,11 @@ def build(day,book,exact3):
                 leg["qty"]+=1; cash-=cost; progress=True
     return {"legs":chosen,"cash":cash}
 
-def run(day,b,daily,dates):
+def run(day,b,daily,dates,side):
     marks=[]
     for d in dates:
         if d<=day or d>day+timedelta(days=7):continue
-        value=b["cash"]; ob=daily[d]["options"]
+        value=b["cash"]; ob=daily[d][side]
         for leg in b["legs"]:
             x=ob.get(leg["o"]["code"])
             if x:value+=x["premium"]*MULT*leg["qty"]
@@ -130,42 +148,49 @@ def run(day,b,daily,dates):
         if value>=TARGET:break
     if not marks:return None
     best=max(marks,key=lambda x:x[1]); last=marks[-1]
-    return {"entry_date":day.strftime("%Y%m%d"),
-            "best_value_yen":round(best[1],2),
-            "target_hit":best[1]>=TARGET,
-            "exit_value_yen":round(last[1],2),
-            "maturities":sorted(set(x["o"]["maturity"] for x in b["legs"]))}
+    return {
+      "entry_date":day.strftime("%Y%m%d"),
+      "target_hit":best[1]>=TARGET,
+      "best_value_yen":round(best[1],2),
+      "exit_value_yen":round(last[1],2)
+    }
 
 def summary(rows):
     n=len(rows)
     if not n:return {"entries":0}
     exits=sorted(r["exit_value_yen"] for r in rows)
-    return {"entries":n,
-            "target_hits":sum(r["target_hit"] for r in rows),
-            "target_rate_pct":round(100*sum(r["target_hit"] for r in rows)/n,4),
-            "median_exit_yen":round(exits[n//2] if n%2 else (exits[n//2-1]+exits[n//2])/2,2),
-            "best_value_yen":round(max(r["best_value_yen"] for r in rows),2),
-            "below5000_pct":round(100*sum(r["exit_value_yen"]<5000 for r in rows)/n,4)}
-
-def evaluate(daily,exact3):
-    dates=sorted(daily); rows=[]
-    for day in dates:
-        b=build(day,daily[day],exact3)
-        if b:
-            r=run(day,b,daily,dates)
-            if r:rows.append(r)
-    early=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()<SPLIT]
-    late=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()>=SPLIT]
-    return {"all":summary(rows),"pre_july":summary(early),"jul_sep":summary(late),
-            "hits":[r for r in rows if r["target_hit"]]}
+    return {
+      "entries":n,
+      "target_hits":sum(r["target_hit"] for r in rows),
+      "target_rate_pct":round(100*sum(r["target_hit"] for r in rows)/n,4),
+      "best_value_yen":round(max(r["best_value_yen"] for r in rows),2),
+      "median_exit_yen":round(exits[n//2] if n%2 else (exits[n//2-1]+exits[n//2])/2,2),
+      "below5000_pct":round(100*sum(r["exit_value_yen"]<5000 for r in rows)/n,4),
+      "zero_pct":round(100*sum(r["exit_value_yen"]==0 for r in rows)/n,4)
+    }
 
 def main():
-    daily=load()
+    daily=load(); dates=sorted(daily); out={}
+    for name,wd,side,dte in VARIANTS:
+        rows=[]
+        for day in dates:
+            if day.weekday()!=wd:continue
+            b=build(day,daily[day],side,dte)
+            if not b:continue
+            r=run(day,b,daily,dates,side)
+            if r:rows.append(r)
+        early=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()<LATE_START]
+        late=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()>=LATE_START]
+        out[name]={
+          "params":{"weekday":wd,"side":side,"exact_dte":dte},
+          "all":summary(rows),"early_dec_apr":summary(early),"late_may_sep":summary(late),
+          "hits":[r for r in rows if r["target_hit"]]
+        }
     print(json.dumps({
       "paper_only":True,
       "source":"JPX direct daily CSV archive",
-      "baseline_tuesday_dte2_4":evaluate(daily,False),
-      "restricted_tuesday_friday_dte3":evaluate(daily,True)
+      "loaded_business_days":len(dates),
+      "variants":out
     },ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
