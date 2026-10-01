@@ -1,22 +1,22 @@
-"""Candidate screen for Thursday-Friday-Monday NK225 mini options.
+"""Structural validation for candidate B: Thu/Fri CALL to next Wednesday.
 
-Frozen candidate A (Tuesday put) is not modified.
+Frozen candidate A (Tuesday PUT) remains untouched.
 
-Pre-registered variants:
-- Thursday PUT/CALL, DTE 5-7
-- Friday PUT/CALL, DTE 5-7
-- Monday PUT/CALL, DTE 2-4
+Candidate B variants:
+- Thursday CALL, exact DTE 6, Wednesday expiry
+- Friday CALL, exact DTE 5, Wednesday expiry
+- Combined Thu/Fri CALL, next-Wednesday expiry
 
 Common mechanics:
-- OTM
+- NK225 mini CALL only, OTM
 - actual premium 10-30 JPY
 - up to 4 distinct strikes
 - deploy up to 10,000 JPY
 - exit at first later daily close where account >=50,000 JPY
 - otherwise mark through 7 calendar days
+- archive 2025-12-01 through 2026-09-30
 
-Archive: 2025-12-01 through 2026-09-30.
-Research only. Daily closes do not guarantee executable fills.
+Research only.
 """
 from __future__ import annotations
 import csv, io, json, ssl, urllib.error, urllib.request
@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
 BASE="https://www.jpx.co.jp/automation/markets/derivatives/option-price/files/"
-UA="crypto-paper-trader-public-thu-fri-mon-screen/1.0"
+UA="crypto-paper-trader-public-candidate-b-nextwed/1.0"
 PRODUCT="NK225MWE"
 START=10_000.0
 TARGET=50_000.0
@@ -35,14 +35,6 @@ MAX_LEGS=4
 START_DATE=date(2025,12,1)
 END_DATE=date(2026,9,30)
 SPLIT=date(2026,5,1)
-VARIANTS=(
- ("thu_put_dte5_7",3,"put",5,7),
- ("thu_call_dte5_7",3,"call",5,7),
- ("fri_put_dte5_7",4,"put",5,7),
- ("fri_call_dte5_7",4,"call",5,7),
- ("mon_put_dte2_4",0,"put",2,4),
- ("mon_call_dte2_4",0,"call",2,4),
-)
 
 def weekdays(a,b):
     d=a
@@ -75,19 +67,16 @@ def num(s):
 
 def parse(body):
     rows=list(csv.reader(io.StringIO(dec(body))))
-    calls={}; puts={}; u=None
+    calls={}; u=None
     for r in rows:
         if len(r)<17 or r[0].strip()!=PRODUCT:continue
         strike=num(r[3]); uu=num(r[15]); maturity=r[2].strip()
         if uu is not None:u=uu
-        pcode=r[5].strip(); pp=num(r[6])
-        ccode=r[10].strip(); cp=num(r[11])
-        if pcode and pp is not None and pp>0:
-            puts[pcode]={"code":pcode,"premium":pp,"strike":strike,"maturity":maturity}
-        if ccode and cp is not None and cp>0:
-            calls[ccode]={"code":ccode,"premium":cp,"strike":strike,"maturity":maturity}
+        code=r[10].strip(); p=num(r[11])
+        if code and p is not None and p>0:
+            calls[code]={"code":code,"premium":p,"strike":strike,"maturity":maturity}
     if u is None:return None
-    return {"underlying":u,"put":puts,"call":calls}
+    return {"underlying":u,"call":calls}
 
 def load():
     daily={}
@@ -100,20 +89,16 @@ def load():
                 if p:daily[day]=p
     return daily
 
-def build(day,book,side,dmin,dmax):
+def build(day,book,exact_dte):
     u=book["underlying"]; xs=[]
-    for o in book[side].values():
+    for o in book["call"].values():
         if o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
-        if side=="put":
-            if o["strike"]>u:continue
-            m=u/o["strike"]-1.0
-        else:
-            if o["strike"]<u:continue
-            m=o["strike"]/u-1.0
+        if o["strike"]<u:continue
+        m=o["strike"]/u-1.0
         try:md=datetime.strptime(o["maturity"],"%Y%m%d").date()
         except:continue
         dte=(md-day).days
-        if not(dmin<=dte<=dmax):continue
+        if dte!=exact_dte or md.weekday()!=2:continue
         xs.append((m,o))
     xs.sort(key=lambda x:(x[0],x[1]["premium"]))
     if not xs:return None
@@ -133,11 +118,11 @@ def build(day,book,side,dmin,dmax):
                 leg["qty"]+=1; cash-=cost; progress=True
     return {"legs":chosen,"cash":cash}
 
-def run(day,b,daily,dates,side):
+def run(day,b,daily,dates):
     marks=[]
     for d in dates:
         if d<=day or d>day+timedelta(days=7):continue
-        value=b["cash"]; ob=daily[d][side]
+        value=b["cash"]; ob=daily[d]["call"]
         for leg in b["legs"]:
             x=ob.get(leg["o"]["code"])
             if x:value+=x["premium"]*MULT*leg["qty"]
@@ -145,36 +130,64 @@ def run(day,b,daily,dates,side):
         if value>=TARGET:break
     if not marks:return None
     best=max(marks,key=lambda x:x[1]); last=marks[-1]
-    return {"entry_date":day.strftime("%Y%m%d"),"best_value_yen":round(best[1],2),
-            "target_hit":best[1]>=TARGET,"exit_value_yen":round(last[1],2)}
+    return {
+      "entry_date":day.strftime("%Y%m%d"),
+      "best_value_yen":round(best[1],2),
+      "target_hit":best[1]>=TARGET,
+      "exit_value_yen":round(last[1],2),
+      "legs":[{"code":x["o"]["code"],"premium":x["o"]["premium"],
+               "strike":x["o"]["strike"],"maturity":x["o"]["maturity"],
+               "qty":x["qty"]} for x in b["legs"]],
+      "cash_left_yen":round(b["cash"],2)
+    }
 
 def summary(rows):
     n=len(rows)
     if not n:return {"entries":0}
     exits=sorted(r["exit_value_yen"] for r in rows)
-    return {"entries":n,"target_hits":sum(r["target_hit"] for r in rows),
-            "target_rate_pct":round(100*sum(r["target_hit"] for r in rows)/n,4),
-            "best_value_yen":round(max(r["best_value_yen"] for r in rows),2),
-            "median_exit_yen":round(exits[n//2] if n%2 else (exits[n//2-1]+exits[n//2])/2,2),
-            "below5000_pct":round(100*sum(r["exit_value_yen"]<5000 for r in rows)/n,4)}
+    return {
+      "entries":n,"target_hits":sum(r["target_hit"] for r in rows),
+      "target_rate_pct":round(100*sum(r["target_hit"] for r in rows)/n,4),
+      "best_value_yen":round(max(r["best_value_yen"] for r in rows),2),
+      "median_exit_yen":round(exits[n//2] if n%2 else (exits[n//2-1]+exits[n//2])/2,2),
+      "below5000_pct":round(100*sum(r["exit_value_yen"]<5000 for r in rows)/n,4)
+    }
+
+def evaluate(daily,weekday,exact_dte):
+    dates=sorted(daily); rows=[]
+    for day in dates:
+        if day.weekday()!=weekday:continue
+        b=build(day,daily[day],exact_dte)
+        if b:
+            r=run(day,b,daily,dates)
+            if r:rows.append(r)
+    early=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()<SPLIT]
+    late=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()>=SPLIT]
+    return {"all":summary(rows),"early_dec_apr":summary(early),
+            "late_may_sep":summary(late),
+            "hits":[r for r in rows if r["target_hit"]]}
 
 def main():
-    daily=load(); dates=sorted(daily); out={}
-    for name,wd,side,dmin,dmax in VARIANTS:
-        rows=[]
-        for day in dates:
-            if day.weekday()!=wd:continue
-            b=build(day,daily[day],side,dmin,dmax)
-            if b:
-                r=run(day,b,daily,dates,side)
-                if r:rows.append(r)
-        early=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()<SPLIT]
-        late=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()>=SPLIT]
-        out[name]={"all":summary(rows),"early_dec_apr":summary(early),
-                   "late_may_sep":summary(late),
-                   "hits":[r for r in rows if r["target_hit"]]}
-    print(json.dumps({"paper_only":True,"source":"JPX direct daily CSV archive",
-                      "variants":out},ensure_ascii=False,sort_keys=True))
+    daily=load()
+    thu=evaluate(daily,3,6)
+    fri=evaluate(daily,4,5)
+    combined_rows=[]
+    for block in (thu,fri):
+        combined_rows.extend(block["hits"])
+    # Combined overall rate is computed from aggregate summaries, not hit rows alone.
+    total_entries=thu["all"].get("entries",0)+fri["all"].get("entries",0)
+    total_hits=thu["all"].get("target_hits",0)+fri["all"].get("target_hits",0)
+    print(json.dumps({
+      "paper_only":True,
+      "source":"JPX direct daily CSV archive",
+      "thu_call_next_wed":thu,
+      "fri_call_next_wed":fri,
+      "combined_thu_fri":{
+        "entries":total_entries,
+        "target_hits":total_hits,
+        "target_rate_pct":round(100*total_hits/total_entries,4) if total_entries else 0
+      }
+    },ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
     main()
