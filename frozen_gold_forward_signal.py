@@ -2,7 +2,7 @@
 
 No parameter optimization. Uses only data available before the scheduled entry.
 Entry rule:
-- Thursday 16:00 UTC
+- Thursday 16:00 UTC bar, evaluated only after that 1h bar has closed
 - abs move over prior 24h >= 1.0%
 - paper-only candidate: GOLD KO distance 0.75%, target JPY 50k, start JPY 10k
 
@@ -23,7 +23,7 @@ TARGET_JPY=50_000
 def latest_complete_entry(bars, now=None):
     now=now or datetime.now(timezone.utc)
     monday=(now-timedelta(days=now.weekday())).date()
-    eligible=[b for b in bars if b.ts.weekday()==WEEKDAY and b.ts.hour==UTC_HOUR and b.ts.date()>=monday and b.ts<=now]
+    eligible=[b for b in bars if b.ts.weekday()==WEEKDAY and b.ts.hour==UTC_HOUR and b.ts.date()>=monday and b.ts+timedelta(hours=1)<=now]
     if not eligible:
         return None
     return eligible[-1]
