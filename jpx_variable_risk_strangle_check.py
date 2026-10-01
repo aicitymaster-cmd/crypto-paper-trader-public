@@ -1,13 +1,22 @@
-"""Structural split of Friday CALL candidate by exact DTE.
+"""Candidate screen for Thursday-Friday-Monday NK225 mini options.
 
-Compare only:
-- Friday CALL, exact DTE 5
-- Friday CALL, exact DTE 7
-- Friday CALL, DTE 5-7 baseline
+Frozen candidate A (Tuesday put) is not modified.
 
-Common mechanics unchanged:
-OTM, premium 10-30 JPY, up to 4 strikes, full 10,000 JPY,
-exit when account reaches >=50,000 JPY, archive 2025-12 through 2026-09.
+Pre-registered variants:
+- Thursday PUT/CALL, DTE 5-7
+- Friday PUT/CALL, DTE 5-7
+- Monday PUT/CALL, DTE 2-4
+
+Common mechanics:
+- OTM
+- actual premium 10-30 JPY
+- up to 4 distinct strikes
+- deploy up to 10,000 JPY
+- exit at first later daily close where account >=50,000 JPY
+- otherwise mark through 7 calendar days
+
+Archive: 2025-12-01 through 2026-09-30.
+Research only. Daily closes do not guarantee executable fills.
 """
 from __future__ import annotations
 import csv, io, json, ssl, urllib.error, urllib.request
@@ -15,12 +24,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
 BASE="https://www.jpx.co.jp/automation/markets/derivatives/option-price/files/"
-UA="crypto-paper-trader-public-friday-call-dte-split/1.0"
+UA="crypto-paper-trader-public-thu-fri-mon-screen/1.0"
 PRODUCT="NK225MWE"
-START=10000.0; TARGET=50000.0
-P_MIN=10.0; P_MAX=30.0; MULT=100.0; MAX_LEGS=4
-START_DATE=date(2025,12,1); END_DATE=date(2026,9,30); SPLIT=date(2026,5,1)
-VARIANTS=(("dte5",5,5),("dte7",7,7),("dte5_7",5,7))
+START=10_000.0
+TARGET=50_000.0
+P_MIN=10.0
+P_MAX=30.0
+MULT=100.0
+MAX_LEGS=4
+START_DATE=date(2025,12,1)
+END_DATE=date(2026,9,30)
+SPLIT=date(2026,5,1)
+VARIANTS=(
+ ("thu_put_dte5_7",3,"put",5,7),
+ ("thu_call_dte5_7",3,"call",5,7),
+ ("fri_put_dte5_7",4,"put",5,7),
+ ("fri_call_dte5_7",4,"call",5,7),
+ ("mon_put_dte2_4",0,"put",2,4),
+ ("mon_call_dte2_4",0,"call",2,4),
+)
 
 def weekdays(a,b):
     d=a
@@ -34,8 +56,12 @@ def fetch_day(day):
     req=urllib.request.Request(url,method="GET",headers={"User-Agent":UA,"Accept":"text/csv,*/*"})
     try:
         with urllib.request.urlopen(req,context=ssl.create_default_context(),timeout=15) as resp:
-            return day,resp.read(8_000_000)
-    except Exception:return day,None
+            return day,resp.read(8_000_000),None
+    except urllib.error.HTTPError as e:
+        if e.code==404:return day,None,"404"
+        return day,None,f"HTTP_{e.code}"
+    except Exception as e:
+        return day,None,f"{type(e).__name__}:{e}"
 
 def dec(body):
     for enc in ("utf-8-sig","shift_jis","cp932"):
@@ -49,35 +75,41 @@ def num(s):
 
 def parse(body):
     rows=list(csv.reader(io.StringIO(dec(body))))
-    calls={}; u=None
+    calls={}; puts={}; u=None
     for r in rows:
         if len(r)<17 or r[0].strip()!=PRODUCT:continue
         strike=num(r[3]); uu=num(r[15]); maturity=r[2].strip()
         if uu is not None:u=uu
-        code=r[10].strip(); p=num(r[11])
-        if code and p is not None and p>0:
-            calls[code]={"code":code,"premium":p,"strike":strike,"maturity":maturity}
+        pcode=r[5].strip(); pp=num(r[6])
+        ccode=r[10].strip(); cp=num(r[11])
+        if pcode and pp is not None and pp>0:
+            puts[pcode]={"code":pcode,"premium":pp,"strike":strike,"maturity":maturity}
+        if ccode and cp is not None and cp>0:
+            calls[ccode]={"code":ccode,"premium":cp,"strike":strike,"maturity":maturity}
     if u is None:return None
-    return {"underlying":u,"call":calls}
+    return {"underlying":u,"put":puts,"call":calls}
 
 def load():
     daily={}
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs=[ex.submit(fetch_day,d) for d in weekdays(START_DATE,END_DATE)]
         for fut in as_completed(futs):
-            day,body=fut.result()
+            day,body,err=fut.result()
             if body:
                 p=parse(body)
                 if p:daily[day]=p
     return daily
 
-def build(day,book,dmin,dmax):
-    if day.weekday()!=4:return None
+def build(day,book,side,dmin,dmax):
     u=book["underlying"]; xs=[]
-    for o in book["call"].values():
+    for o in book[side].values():
         if o["strike"] is None or not(P_MIN<=o["premium"]<=P_MAX):continue
-        if o["strike"]<u:continue
-        m=o["strike"]/u-1.0
+        if side=="put":
+            if o["strike"]>u:continue
+            m=u/o["strike"]-1.0
+        else:
+            if o["strike"]<u:continue
+            m=o["strike"]/u-1.0
         try:md=datetime.strptime(o["maturity"],"%Y%m%d").date()
         except:continue
         dte=(md-day).days
@@ -101,11 +133,11 @@ def build(day,book,dmin,dmax):
                 leg["qty"]+=1; cash-=cost; progress=True
     return {"legs":chosen,"cash":cash}
 
-def run(day,b,daily,dates):
+def run(day,b,daily,dates,side):
     marks=[]
     for d in dates:
         if d<=day or d>day+timedelta(days=7):continue
-        value=b["cash"]; ob=daily[d]["call"]
+        value=b["cash"]; ob=daily[d][side]
         for leg in b["legs"]:
             x=ob.get(leg["o"]["code"])
             if x:value+=x["premium"]*MULT*leg["qty"]
@@ -113,11 +145,8 @@ def run(day,b,daily,dates):
         if value>=TARGET:break
     if not marks:return None
     best=max(marks,key=lambda x:x[1]); last=marks[-1]
-    return {"entry_date":day.strftime("%Y%m%d"),
-            "best_value_yen":round(best[1],2),
-            "target_hit":best[1]>=TARGET,
-            "exit_value_yen":round(last[1],2),
-            "maturities":sorted(set(x["o"]["maturity"] for x in b["legs"]))}
+    return {"entry_date":day.strftime("%Y%m%d"),"best_value_yen":round(best[1],2),
+            "target_hit":best[1]>=TARGET,"exit_value_yen":round(last[1],2)}
 
 def summary(rows):
     n=len(rows)
@@ -125,23 +154,27 @@ def summary(rows):
     exits=sorted(r["exit_value_yen"] for r in rows)
     return {"entries":n,"target_hits":sum(r["target_hit"] for r in rows),
             "target_rate_pct":round(100*sum(r["target_hit"] for r in rows)/n,4),
-            "below5000_pct":round(100*sum(r["exit_value_yen"]<5000 for r in rows)/n,4),
+            "best_value_yen":round(max(r["best_value_yen"] for r in rows),2),
             "median_exit_yen":round(exits[n//2] if n%2 else (exits[n//2-1]+exits[n//2])/2,2),
-            "best_value_yen":round(max(r["best_value_yen"] for r in rows),2)}
+            "below5000_pct":round(100*sum(r["exit_value_yen"]<5000 for r in rows)/n,4)}
 
 def main():
     daily=load(); dates=sorted(daily); out={}
-    for name,dmin,dmax in VARIANTS:
+    for name,wd,side,dmin,dmax in VARIANTS:
         rows=[]
         for day in dates:
-            b=build(day,daily[day],dmin,dmax)
+            if day.weekday()!=wd:continue
+            b=build(day,daily[day],side,dmin,dmax)
             if b:
-                r=run(day,b,daily,dates)
+                r=run(day,b,daily,dates,side)
                 if r:rows.append(r)
         early=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()<SPLIT]
         late=[r for r in rows if datetime.strptime(r["entry_date"],"%Y%m%d").date()>=SPLIT]
-        out[name]={"all":summary(rows),"early":summary(early),"late":summary(late),
+        out[name]={"all":summary(rows),"early_dec_apr":summary(early),
+                   "late_may_sep":summary(late),
                    "hits":[r for r in rows if r["target_hit"]]}
     print(json.dumps({"paper_only":True,"source":"JPX direct daily CSV archive",
-                      "friday_call_split":out},ensure_ascii=False,sort_keys=True))
-if __name__=="__main__": main()
+                      "variants":out},ensure_ascii=False,sort_keys=True))
+
+if __name__=="__main__":
+    main()
