@@ -6,6 +6,7 @@ multiple-testing/overfit versus re-optimizing all strategy knobs.
 """
 from __future__ import annotations
 import itertools, json, ssl, urllib.request, urllib.parse
+from bisect import bisect_left
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from cross_market_backtest import Bar, run_window
@@ -46,12 +47,15 @@ def parse(p):
 
 def candidate_starts(bars):
     out=[]
+    times=[b.ts for b in bars]
     for i,b in enumerate(bars):
         ts=b.ts
         if ts.weekday() not in WEEKDAYS or ts.hour not in HOURS: continue
-        hist=[x for x in bars if ts-timedelta(hours=24)<=x.ts<ts]
+        h0=bisect_left(times,ts-timedelta(hours=24))
+        hist=bars[h0:i]
         if len(hist)<8: continue
-        chunk=[x for x in bars if ts<=x.ts<ts+timedelta(days=7)]
+        e=bisect_left(times,ts+timedelta(days=7),lo=i)
+        chunk=bars[i:e]
         if len(chunk)<=18: continue
         mv=abs(hist[-1].close/hist[0].close-1.0)
         out.append((ts,mv,chunk))
