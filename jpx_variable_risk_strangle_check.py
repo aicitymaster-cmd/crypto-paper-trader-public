@@ -1,37 +1,31 @@
-"""Long-horizon validation of frozen FX binary feasibility candidates.
+"""Time-window holdout test for USDJPY momentum6h binary feasibility.
 
-Frozen after 5-minute discovery:
-- USDJPY momentum6h
-- GBPJPY momentum6h
+Discovery:
+- Use only 2024 and 2025 observations.
+- Same frozen empirical 20%-tail model and momentum6h signal.
+- Compare UTC 2-hour block start hours.
+- Select the single start hour with highest discovery hit rate, requiring >=100 observations.
 
-Uses Yahoo public 1-hour bars over 730 days. Each outcome is a 2-hour return.
-A "20-point-equivalent" event is defined empirically using only prior data:
-- trailing 20 trading days of completed 2-hour returns
-- upper/lower thresholds = 80th/20th percentiles
-- prior 6-hour return determines direction (momentum)
+Validation:
+- Apply that exact UTC start hour to 2026 only.
+- No retuning on 2026.
 
-This is NOT historical IG pricing. It only tests whether the underlying signal
-beats the ~20% hit rate required by a 5x all-in binary before spread/costs.
-
-Robustness:
-- chronological thirds
-- calendar-year split
-- non-overlapping daily first signal (one candidate per UTC day)
+This is NOT historical broker pricing. It excludes spread, strike grid and execution.
 """
 from __future__ import annotations
 import json, math, ssl, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 HOST="query1.finance.yahoo.com"
-UA="crypto-paper-trader-public-binary-long/1.0"
-MARKETS={"USDJPY":"JPY=X","GBPJPY":"GBPJPY=X"}
+UA="crypto-paper-trader-public-binary-hour-holdout/1.0"
+SYMBOL="JPY=X"
 INTERVAL="1h"
 RANGE="730d"
 BLOCK_BARS=2
 LOOKBACK_BLOCKS=12*20
 
-def fetch(symbol):
-    enc=urllib.parse.quote(symbol,safe="")
+def fetch():
+    enc=urllib.parse.quote(SYMBOL,safe="")
     url=(f"https://{HOST}/v8/finance/chart/{enc}"
          f"?range={RANGE}&interval={INTERVAL}&includePrePost=false&events=div%2Csplits")
     req=urllib.request.Request(url,method="GET",headers={"User-Agent":UA,"Accept":"application/json"})
@@ -44,15 +38,10 @@ def series(payload):
     r=r[0]; ts=r.get("timestamp") or []
     q=((r.get("indicators") or {}).get("quote") or [{}])[0]
     cc=q.get("close") or []
-    out=[]
-    for t,c in zip(ts,cc):
-        if c is None:continue
-        out.append((int(t),float(c)))
-    return out
+    return [(int(t),float(c)) for t,c in zip(ts,cc) if c is not None]
 
-def quantile(vals,q):
+def qtile(vals,q):
     xs=sorted(vals)
-    if not xs:return None
     p=(len(xs)-1)*q
     lo=int(math.floor(p)); hi=int(math.ceil(p))
     if lo==hi:return xs[lo]
@@ -62,66 +51,54 @@ def blocks(s):
     out=[]
     for i in range(0,len(s)-BLOCK_BARS,BLOCK_BARS):
         a=s[i]; b=s[i+BLOCK_BARS]
-        elapsed=b[0]-a[0]
-        if not (6900<=elapsed<=7500):continue
-        out.append({"ts":a[0],"start":a[1],"end":b[1],"ret":b[1]/a[1]-1.0})
+        if not(6900<=b[0]-a[0]<=7500):continue
+        dt=datetime.fromtimestamp(a[0],tz=timezone.utc)
+        out.append({"ts":a[0],"year":dt.year,"hour":dt.hour,
+                    "start":a[1],"end":b[1],"ret":b[1]/a[1]-1.0})
     return out
 
-def evaluate(bs):
+def observations(bs):
     rows=[]
     for i in range(max(LOOKBACK_BLOCKS,3),len(bs)):
         hist=[x["ret"] for x in bs[i-LOOKBACK_BLOCKS:i]]
-        lo=quantile(hist,0.20); hi=quantile(hist,0.80)
+        lo=qtile(hist,0.20); hi=qtile(hist,0.80)
         prior6=bs[i-1]["end"]/bs[i-3]["start"]-1.0
         if prior6==0:continue
-        side="upper" if prior6>0 else "lower"
+        upper=prior6>0
         r=bs[i]["ret"]
-        hit=(r>=hi) if side=="upper" else (r<=lo)
-        dt=datetime.fromtimestamp(bs[i]["ts"],tz=timezone.utc)
-        rows.append({"ts":bs[i]["ts"],"date":dt.date().isoformat(),
-                     "year":dt.year,"side":side,"hit":hit})
+        hit=(r>=hi) if upper else (r<=lo)
+        rows.append({"year":bs[i]["year"],"hour":bs[i]["hour"],"hit":hit})
     return rows
 
-def summary(rows):
-    n=len(rows)
-    if not n:return {"trades":0}
-    h=sum(r["hit"] for r in rows)
-    return {"trades":n,"hits":h,"hit_rate_pct":round(100*h/n,4),
+def summ(xs):
+    n=len(xs)
+    if not n:return {"n":0}
+    h=sum(x["hit"] for x in xs)
+    return {"n":n,"hits":h,"hit_rate_pct":round(100*h/n,4),
             "idealized_5x_mean_multiple":round(5*h/n,4)}
 
-def thirds(rows):
-    n=len(rows); a=n//3; b=2*n//3
-    return {"first":summary(rows[:a]),"middle":summary(rows[a:b]),"last":summary(rows[b:])}
-
-def one_per_day(rows):
-    seen=set(); out=[]
-    for r in rows:
-        if r["date"] in seen:continue
-        seen.add(r["date"]); out.append(r)
-    return out
-
 def main():
-    result={}
-    for name,sym in MARKETS.items():
-        bs=blocks(series(fetch(sym)))
-        rows=evaluate(bs)
-        by_year={}
-        for r in rows:by_year.setdefault(str(r["year"]),[]).append(r)
-        daily=one_per_day(rows)
-        result[name]={
-          "blocks":len(bs),
-          "all":summary(rows),
-          "chronological_thirds":thirds(rows),
-          "by_year":{y:summary(v) for y,v in sorted(by_year.items())},
-          "one_signal_per_utc_day":summary(daily),
-          "one_signal_per_utc_day_thirds":thirds(daily)
-        }
+    rows=observations(blocks(series(fetch())))
+    discovery=[x for x in rows if x["year"] in (2024,2025)]
+    validation=[x for x in rows if x["year"]==2026]
+    by_hour={}
+    for h in sorted(set(x["hour"] for x in discovery)):
+        xs=[x for x in discovery if x["hour"]==h]
+        by_hour[str(h)]=summ(xs)
+    eligible=[(h,v) for h,v in by_hour.items() if v["n"]>=100]
+    eligible.sort(key=lambda kv:(-kv[1]["hit_rate_pct"],-kv[1]["n"],int(kv[0])))
+    best_hour=int(eligible[0][0]) if eligible else None
+    val=[x for x in validation if x["hour"]==best_hour] if best_hour is not None else []
+    dis=[x for x in discovery if x["hour"]==best_hour] if best_hour is not None else []
     print(json.dumps({
       "paper_only":True,
-      "model":"long-horizon empirical 20-percent-tail binary feasibility",
+      "model":"USDJPY momentum6h, 20%-tail, time-window discovery/2026 holdout",
       "required_break_even_hit_rate_pct_before_costs":20.0,
-      "warning":"not IG historical quotes; excludes broker spread, strike grid and execution",
-      "markets":result
+      "discovery_2024_2025_by_utc_hour":by_hour,
+      "selected_utc_hour":best_hour,
+      "selected_discovery":summ(dis),
+      "validation_2026":summ(val),
+      "warning":"not broker quotes; excludes spread, strike grid and execution"
     },ensure_ascii=False,sort_keys=True))
 
 if __name__=="__main__":
