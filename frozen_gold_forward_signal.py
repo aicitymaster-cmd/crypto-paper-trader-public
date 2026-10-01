@@ -10,7 +10,7 @@ Outputs ELIGIBLE / NOT_ELIGIBLE plus the exact inputs used.
 """
 from __future__ import annotations
 import json
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from gold_filter_holdout import fetch, parse
 
 WEEKDAY=3
@@ -20,14 +20,18 @@ KO_DISTANCE_PCT=0.0075
 START_JPY=10_000
 TARGET_JPY=50_000
 
-def latest_complete_entry(bars):
-    eligible=[b for b in bars if b.ts.weekday()==WEEKDAY and b.ts.hour==UTC_HOUR]
+def latest_complete_entry(bars, now=None):
+    now=now or datetime.now(timezone.utc)
+    monday=(now-timedelta(days=now.weekday())).date()
+    eligible=[b for b in bars if b.ts.weekday()==WEEKDAY and b.ts.hour==UTC_HOUR and b.ts.date()>=monday and b.ts<=now]
     if not eligible:
-        raise RuntimeError("NO_THURSDAY_16UTC_BAR")
+        return None
     return eligible[-1]
 
-def evaluate(bars):
-    entry=latest_complete_entry(bars)
+def evaluate(bars, now=None):
+    entry=latest_complete_entry(bars,now=now)
+    if entry is None:
+        return {"status":"WAITING_ENTRY_WINDOW","parameters_frozen":True,"paper_only":True}
     hist=[b for b in bars if entry.ts-timedelta(hours=24) <= b.ts < entry.ts]
     if len(hist)<8:
         return {"status":"INSUFFICIENT_HISTORY","entry_utc":entry.ts.isoformat()}
