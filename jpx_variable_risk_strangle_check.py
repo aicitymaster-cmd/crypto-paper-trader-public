@@ -1,40 +1,34 @@
-"""Idealized 20-point-equivalent FX binary feasibility screen.
+"""Long-horizon validation of frozen FX binary feasibility candidates.
 
-Purpose:
-Estimate whether simple, no-lookahead signals can beat the ~20% hit rate
-required by an all-in 5x binary structure.
+Frozen after 5-minute discovery:
+- USDJPY momentum6h
+- GBPJPY momentum6h
 
-This is NOT a reconstruction of IG quotes. It uses public Yahoo 5-minute FX
-bars and defines a "20-point-equivalent" rare event empirically:
-- Split each FX series into sequential 2-hour blocks.
-- At each block start, use only the prior 20 trading days of completed 2-hour
-  returns to estimate the 80th and 20th percentile thresholds.
-- Upper event: next 2h return >= trailing 80th percentile.
-- Lower event: next 2h return <= trailing 20th percentile.
-Thus each side is calibrated to roughly a 20% unconditional event before
-signal filtering.
+Uses Yahoo public 1-hour bars over 730 days. Each outcome is a 2-hour return.
+A "20-point-equivalent" event is defined empirically using only prior data:
+- trailing 20 trading days of completed 2-hour returns
+- upper/lower thresholds = 80th/20th percentiles
+- prior 6-hour return determines direction (momentum)
 
-Pre-registered signals:
-- momentum6h: prior 6h return >0 -> upper, <0 -> lower
-- contrarian6h: prior 6h return >0 -> lower, <0 -> upper
-- momentum2h: prior 2h return >0 -> upper, <0 -> lower
-- contrarian2h: prior 2h return >0 -> lower, <0 -> upper
+This is NOT historical IG pricing. It only tests whether the underlying signal
+beats the ~20% hit rate required by a 5x all-in binary before spread/costs.
 
-Markets: USDJPY, GBPJPY, EURJPY.
-Research only. No broker quote, spread, slippage, or execution model.
+Robustness:
+- chronological thirds
+- calendar-year split
+- non-overlapping daily first signal (one candidate per UTC day)
 """
 from __future__ import annotations
-import json, math, ssl, statistics, urllib.parse, urllib.request
+import json, math, ssl, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 HOST="query1.finance.yahoo.com"
-UA="crypto-paper-trader-public-binary-feasibility/1.0"
-MARKETS={"USDJPY":"JPY=X","GBPJPY":"GBPJPY=X","EURJPY":"EURJPY=X"}
-INTERVAL="5m"
-RANGE="60d"
-BLOCK_BARS=24  # 2 hours at 5m
-LOOKBACK_BLOCKS=12*20  # ~20 trading days
-SIGNALS=("momentum6h","contrarian6h","momentum2h","contrarian2h")
+UA="crypto-paper-trader-public-binary-long/1.0"
+MARKETS={"USDJPY":"JPY=X","GBPJPY":"GBPJPY=X"}
+INTERVAL="1h"
+RANGE="730d"
+BLOCK_BARS=2
+LOOKBACK_BLOCKS=12*20
 
 def fetch(symbol):
     enc=urllib.parse.quote(symbol,safe="")
@@ -42,9 +36,9 @@ def fetch(symbol):
          f"?range={RANGE}&interval={INTERVAL}&includePrePost=false&events=div%2Csplits")
     req=urllib.request.Request(url,method="GET",headers={"User-Agent":UA,"Accept":"application/json"})
     with urllib.request.urlopen(req,context=ssl.create_default_context(),timeout=20) as resp:
-        return json.loads(resp.read(10_000_000))
+        return json.loads(resp.read(20_000_000))
 
-def closes(payload):
+def series(payload):
     r=(payload.get("chart") or {}).get("result") or []
     if not r:raise RuntimeError("NO_RESULT")
     r=r[0]; ts=r.get("timestamp") or []
@@ -59,73 +53,74 @@ def closes(payload):
 def quantile(vals,q):
     xs=sorted(vals)
     if not xs:return None
-    pos=(len(xs)-1)*q
-    lo=int(math.floor(pos)); hi=int(math.ceil(pos))
+    p=(len(xs)-1)*q
+    lo=int(math.floor(p)); hi=int(math.ceil(p))
     if lo==hi:return xs[lo]
-    return xs[lo]+(xs[hi]-xs[lo])*(pos-lo)
+    return xs[lo]+(xs[hi]-xs[lo])*(p-lo)
 
-def block_returns(series):
-    # Use consecutive observed bars; gaps create longer effective periods, so
-    # reject blocks whose elapsed time is far from 2h.
+def blocks(s):
     out=[]
-    for i in range(0,len(series)-BLOCK_BARS,BLOCK_BARS):
-        a=series[i]; b=series[i+BLOCK_BARS]
+    for i in range(0,len(s)-BLOCK_BARS,BLOCK_BARS):
+        a=s[i]; b=s[i+BLOCK_BARS]
         elapsed=b[0]-a[0]
         if not (6900<=elapsed<=7500):continue
-        out.append({"start_ts":a[0],"start":a[1],"end":b[1],"ret":b[1]/a[1]-1.0})
+        out.append({"ts":a[0],"start":a[1],"end":b[1],"ret":b[1]/a[1]-1.0})
     return out
 
-def decide(signal, blocks, i):
-    if "6h" in signal:
-        n=3
-    else:
-        n=1
-    if i<n:return None
-    prior=1.0
-    start=blocks[i-n]["start"]
-    end=blocks[i-1]["end"]
-    r=end/start-1.0
-    if r==0:return None
-    momentum=signal.startswith("momentum")
-    if momentum:
-        return "upper" if r>0 else "lower"
-    return "lower" if r>0 else "upper"
-
-def evaluate(blocks,signal):
+def evaluate(bs):
     rows=[]
-    for i in range(LOOKBACK_BLOCKS,len(blocks)):
-        hist=[x["ret"] for x in blocks[i-LOOKBACK_BLOCKS:i]]
+    for i in range(max(LOOKBACK_BLOCKS,3),len(bs)):
+        hist=[x["ret"] for x in bs[i-LOOKBACK_BLOCKS:i]]
         lo=quantile(hist,0.20); hi=quantile(hist,0.80)
-        side=decide(signal,blocks,i)
-        if side is None:continue
-        r=blocks[i]["ret"]
+        prior6=bs[i-1]["end"]/bs[i-3]["start"]-1.0
+        if prior6==0:continue
+        side="upper" if prior6>0 else "lower"
+        r=bs[i]["ret"]
         hit=(r>=hi) if side=="upper" else (r<=lo)
-        rows.append({
-          "ts":blocks[i]["start_ts"],"side":side,"ret":r,
-          "threshold":hi if side=="upper" else lo,"hit":hit
-        })
+        dt=datetime.fromtimestamp(bs[i]["ts"],tz=timezone.utc)
+        rows.append({"ts":bs[i]["ts"],"date":dt.date().isoformat(),
+                     "year":dt.year,"side":side,"hit":hit})
+    return rows
+
+def summary(rows):
     n=len(rows)
     if not n:return {"trades":0}
-    split=n//2
-    def s(xs):
-        m=len(xs)
-        if not m:return {"trades":0}
-        hits=sum(x["hit"] for x in xs)
-        return {"trades":m,"hits":hits,
-                "hit_rate_pct":round(100*hits/m,4),
-                "idealized_all_in_5x_mean_multiple":round(5*hits/m,4)}
-    return {"all":s(rows),"first_half":s(rows[:split]),"second_half":s(rows[split:])}
+    h=sum(r["hit"] for r in rows)
+    return {"trades":n,"hits":h,"hit_rate_pct":round(100*h/n,4),
+            "idealized_5x_mean_multiple":round(5*h/n,4)}
+
+def thirds(rows):
+    n=len(rows); a=n//3; b=2*n//3
+    return {"first":summary(rows[:a]),"middle":summary(rows[a:b]),"last":summary(rows[b:])}
+
+def one_per_day(rows):
+    seen=set(); out=[]
+    for r in rows:
+        if r["date"] in seen:continue
+        seen.add(r["date"]); out.append(r)
+    return out
 
 def main():
     result={}
     for name,sym in MARKETS.items():
-        bs=block_returns(closes(fetch(sym)))
-        result[name]={"blocks":len(bs),
-                      "signals":{sig:evaluate(bs,sig) for sig in SIGNALS}}
+        bs=blocks(series(fetch(sym)))
+        rows=evaluate(bs)
+        by_year={}
+        for r in rows:by_year.setdefault(str(r["year"]),[]).append(r)
+        daily=one_per_day(rows)
+        result[name]={
+          "blocks":len(bs),
+          "all":summary(rows),
+          "chronological_thirds":thirds(rows),
+          "by_year":{y:summary(v) for y,v in sorted(by_year.items())},
+          "one_signal_per_utc_day":summary(daily),
+          "one_signal_per_utc_day_thirds":thirds(daily)
+        }
     print(json.dumps({
       "paper_only":True,
-      "model":"empirical 20-percent-tail binary feasibility, not broker quotes",
+      "model":"long-horizon empirical 20-percent-tail binary feasibility",
       "required_break_even_hit_rate_pct_before_costs":20.0,
+      "warning":"not IG historical quotes; excludes broker spread, strike grid and execution",
       "markets":result
     },ensure_ascii=False,sort_keys=True))
 
