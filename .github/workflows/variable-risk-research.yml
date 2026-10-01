@@ -8,6 +8,7 @@ on:
     paths:
       - jpx_variable_risk_strangle_check.py
       - jpx_tuesday_signal.py
+      - jpx_thufri_signal.py
       - .github/workflows/variable-risk-research.yml
 
 permissions: {}
@@ -40,6 +41,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 repo/jpx_variable_risk_strangle_check.py
+
+      - name: Run read-only Thu/Fri signal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 repo/jpx_thufri_signal.py
 
       - name: Run read-only Tuesday signal
         shell: bash
