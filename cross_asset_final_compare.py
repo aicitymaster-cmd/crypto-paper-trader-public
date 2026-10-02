@@ -30,6 +30,10 @@ SYMBOLS={
  "silver_ko":"SI=F",
  "oil_ko":"CL=F",
  "nasdaq_ko":"NQ=F",
+ "sp500_ko":"ES=F",
+ "russell2000_ko":"RTY=F",
+ "tesla_ko_proxy":"TSLA",
+ "nvidia_ko_proxy":"NVDA",
  "nikkei_ko":"^N225",
  "vix_ko":"^VIX",
  "fx_usdjpy":"JPY=X",
@@ -148,7 +152,7 @@ def main():
     for target in TARGETS:
         key=str(int(target))
         out[key]={}
-        for k in ("gold_ko","silver_ko","oil_ko","nasdaq_ko","nikkei_ko","vix_ko"):
+        for k in ("gold_ko","silver_ko","oil_ko","nasdaq_ko","sp500_ko","russell2000_ko","nikkei_ko","vix_ko","tesla_ko_proxy","nvidia_ko_proxy"):
             out[key][k]=summarize([ko_window(w,target) for w in windows(data[k])])
         out[key]["fx_usdjpy_25x"]=summarize([leverage_window(w,25.0,target) for w in windows(data["fx_usdjpy"])])
         out[key]["btc_2x"]=summarize([leverage_window(w,2.0,target) for w in windows(data["btc_2x"])])
