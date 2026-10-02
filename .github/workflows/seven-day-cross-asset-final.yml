@@ -1,0 +1,37 @@
+name: Seven-day cross-asset final comparison
+
+on:
+  push:
+    branches:
+      - seven-day-cross-asset-final
+    paths:
+      - cross_asset_final_compare.py
+      - .github/workflows/seven-day-cross-asset-final.yml
+
+permissions: {}
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact commit
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            --max-time 30 --max-filesize 20000000 \
+            "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" -o repo.tar.gz
+          mkdir repo
+          tar -xzf repo.tar.gz --strip-components=1 -C repo
+          cd repo
+          python3 security_guard.py .
+          python3 -m unittest discover -q
+
+      - name: Run final cross-asset comparison
+        shell: bash
+        run: python3 repo/cross_asset_final_compare.py
