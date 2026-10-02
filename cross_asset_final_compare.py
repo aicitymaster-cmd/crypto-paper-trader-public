@@ -17,7 +17,7 @@ from statistics import median
 from cross_market_backtest import Bar
 
 START=10_000.0
-TARGET=50_000.0
+TARGETS=(30_000.0,50_000.0)
 RANGE="2y"; INTERVAL="1h"
 FAST=6; SLOW=18
 USDJPY_REF=158.2
@@ -70,7 +70,7 @@ def windows(bars):
 def hit_day(ts0,ts):
     return max(1,min(7,math.ceil((ts-ts0).total_seconds()/86400)))
 
-def ko_window(chunk):
+def ko_window(chunk,target):
     eq=START; i=SLOW; touched=None; ruined=False
     while i<len(chunk)-1 and eq>0 and touched is None:
         closes=[b.close for b in chunk[:i+1]]
@@ -86,8 +86,8 @@ def ko_window(chunk):
             favorable=(h-entry) if sig==1 else (entry-l)
             if adverse>=ko:
                 eq=0; ruined=True; i=j+1; break
-            if eq+favorable*lots*USDJPY_REF>=TARGET:
-                eq=TARGET; touched=hit_day(chunk[0].ts,b.ts); break
+            if eq+favorable*lots*USDJPY_REF>=target:
+                eq=target; touched=hit_day(chunk[0].ts,b.ts); break
             closes2=[x.close for x in chunk[:j+1]]
             sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
             if sig2!=sig:
@@ -99,7 +99,7 @@ def ko_window(chunk):
             eq=max(0,eq+move*lots*USDJPY_REF); i=len(chunk)
     return touched,ruined,eq
 
-def leverage_window(chunk,lev):
+def leverage_window(chunk,lev,target):
     eq=START; i=SLOW; touched=None; ruined=False
     while i<len(chunk)-1 and eq>0 and touched is None:
         closes=[b.close for b in chunk[:i+1]]
@@ -111,8 +111,8 @@ def leverage_window(chunk,lev):
             adverse=((l/entry)-1) if sig==1 else ((entry/h)-1)
             if eq*(1+adverse*lev)<=0:
                 eq=0; ruined=True; i=j+1; break
-            if eq*(1+favorable*lev)>=TARGET:
-                eq=TARGET; touched=hit_day(chunk[0].ts,b.ts); break
+            if eq*(1+favorable*lev)>=target:
+                eq=target; touched=hit_day(chunk[0].ts,b.ts); break
             closes2=[x.close for x in chunk[:j+1]]
             sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
             if sig2!=sig:
@@ -126,10 +126,9 @@ def leverage_window(chunk,lev):
 
 def summarize(rows):
     n=len(rows); hitdays=[d for d,r,e in rows if d is not None]
-    def rate(k): return round(100*sum(d is not None and d<=k for d,_,_ in rows)/n,2) if n else 0
     return {
       "windows":n,
-      "hit_1d_pct":rate(1),"hit_3d_pct":rate(3),"hit_5d_pct":rate(5),"hit_7d_pct":rate(7),
+      "hit_7d_pct":round(100*sum(d is not None for d,_,_ in rows)/n,2) if n else 0,
       "ruin_pct":round(100*sum(r for _,r,_ in rows)/n,2) if n else 0,
       "median_hit_day":median(hitdays) if hitdays else None,
       "median_final_jpy":round(median([e for _,_,e in rows]),2) if n else None,
@@ -146,10 +145,13 @@ def option_opportunity_proxy(chunk):
 def main():
     data={k:fetch_symbol(v) for k,v in SYMBOLS.items()}
     out={}
-    for k in ("gold_ko","silver_ko","oil_ko","nasdaq_ko","nikkei_ko","vix_ko"):
-        out[k]=summarize([ko_window(w) for w in windows(data[k])])
-    out["fx_usdjpy_25x"]=summarize([leverage_window(w,25.0) for w in windows(data["fx_usdjpy"])])
-    out["btc_2x"]=summarize([leverage_window(w,2.0) for w in windows(data["btc_2x"])])
+    for target in TARGETS:
+        key=str(int(target))
+        out[key]={}
+        for k in ("gold_ko","silver_ko","oil_ko","nasdaq_ko","nikkei_ko","vix_ko"):
+            out[key][k]=summarize([ko_window(w,target) for w in windows(data[k])])
+        out[key]["fx_usdjpy_25x"]=summarize([leverage_window(w,25.0,target) for w in windows(data["fx_usdjpy"])])
+        out[key]["btc_2x"]=summarize([leverage_window(w,2.0,target) for w in windows(data["btc_2x"])])
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
@@ -161,7 +163,7 @@ def main():
       "note":"Underlying opportunity frequency only; no fabricated option premium or 5x-return probability."
     }
     print(json.dumps({
-      "objective":"JPY10000 to JPY50000; stop on first touch; maximum 7 days",
+      "objective":"JPY10000 to target JPY30000 or JPY50000; stop on first touch; maximum 7 days",
       "paper_only":True,
       "normalized_ko_assumption":{"ko_pct":KO_PCT,"premium_points":KO_PREMIUM,"spread_points":SPREAD},
       "results":out,
