@@ -401,6 +401,62 @@ def staged_variant_window(chunk, ko_pct, reserve_jpy, stages):
             risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
     return touched,reserve_jpy+risk,ever_ko
 
+
+def filtered_staged_window(chunk, ko_pct=0.0125, reserve_jpy=2000.0,
+                           min_trend_gap=0.002, min_abs_24h=0.01):
+    """Only trade when trend separation and 24h move are both strong."""
+    risk=max(0.0, START-reserve_jpy)
+    stages=(15000.0,20000.0,30000.0)
+    i=max(SLOW,24); idx=0; touched=None; ever_ko=False; traded=False
+    while i<len(chunk)-1 and risk>0 and idx<len(stages):
+        closes=[b.close for b in chunk[:i+1]]
+        fast=sma(closes,FAST); slow=sma(closes,SLOW)
+        gap=abs(fast/slow-1) if slow else 0.0
+        move24=abs(closes[-1]/closes[-25]-1) if len(closes)>=25 else 0.0
+        if gap<min_trend_gap or move24<min_abs_24h:
+            i+=1; continue
+        traded=True
+        sig=1 if fast>slow else -1
+        entry=chunk[i].close; ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(risk/USDJPY_REF)/option_points
+        j=i+1
+        stage_target=stages[idx]
+        while j<len(chunk):
+            b=chunk[j]; _,h,l,c=b.ohlc()
+            adverse=(entry-l) if sig==1 else (h-entry)
+            favorable=(h-entry) if sig==1 else (entry-l)
+            if adverse>=ko:
+                risk=0.0; ever_ko=True; i=j+1; break
+            needed=stage_target-reserve_jpy
+            if risk+favorable*lots*USDJPY_REF>=needed:
+                risk=needed; idx+=1; i=j+1
+                if idx>=len(stages): touched=hit_day(chunk[0].ts,b.ts)
+                break
+            closes2=[x.close for x in chunk[:j+1]]
+            sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
+            if sig2!=sig:
+                move=(c-entry) if sig==1 else (entry-c)
+                risk=max(0.0,risk+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
+    return touched,reserve_jpy+risk,ever_ko,traded
+
+def summarize_filtered(rows):
+    traded=[r for r in rows if r[3]]
+    n=len(rows); m=len(traded)
+    return {
+      "windows":n,
+      "trade_windows":m,
+      "trade_rate_pct":round(100*m/n,2) if n else 0,
+      "target_hit_all_windows_pct":round(100*sum(d is not None for d,_,_,_ in rows)/n,2) if n else 0,
+      "target_hit_when_traded_pct":round(100*sum(d is not None for d,_,_,_ in traded)/m,2) if m else 0,
+      "ko_when_traded_pct":round(100*sum(ko for _,_,ko,_ in traded)/m,2) if m else 0,
+      "median_final_jpy":round(median([total for _,total,_,_ in traded]),2) if m else None,
+    }
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -465,6 +521,14 @@ def main():
         out["sp500_stage_variants"][name]=summarize_staged([
             staged_variant_window(w,0.01,2000.0,stages) for w in spw
         ])
+    out["nasdaq_filter_tests"]={}
+    nw=windows(data["nasdaq_ko"])
+    for gap in (0.001,0.002,0.003,0.004):
+        for mv in (0.005,0.01,0.015,0.02):
+            key=f"gap{gap}_mv{mv}"
+            out["nasdaq_filter_tests"][key]=summarize_filtered([
+                filtered_staged_window(w,0.0125,2000.0,gap,mv) for w in nw
+            ])
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
