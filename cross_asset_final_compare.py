@@ -362,6 +362,45 @@ def summarize_split(rows):
       "median_final_jpy":round(median([total for _,total,_,_ in rows]),2) if n else None,
     }
 
+
+def staged_variant_window(chunk, ko_pct, reserve_jpy, stages):
+    risk=max(0.0, START-reserve_jpy)
+    i=SLOW; idx=0; touched=None; ever_ko=False
+    while i<len(chunk)-1 and risk>0 and idx<len(stages):
+        total=reserve_jpy+risk
+        if total>=stages[idx]:
+            idx+=1
+            if idx>=len(stages):
+                touched=hit_day(chunk[0].ts,chunk[i].ts); break
+            continue
+        closes=[b.close for b in chunk[:i+1]]
+        sig=1 if sma(closes,FAST)>sma(closes,SLOW) else -1
+        entry=chunk[i].close; ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(risk/USDJPY_REF)/option_points
+        j=i+1
+        while j<len(chunk):
+            b=chunk[j]; _,h,l,c=b.ohlc()
+            adverse=(entry-l) if sig==1 else (h-entry)
+            favorable=(h-entry) if sig==1 else (entry-l)
+            if adverse>=ko:
+                risk=0.0; ever_ko=True; i=j+1; break
+            needed=stages[idx]-reserve_jpy
+            if risk+favorable*lots*USDJPY_REF>=needed:
+                risk=needed; idx+=1; i=j+1
+                if idx>=len(stages): touched=hit_day(chunk[0].ts,b.ts)
+                break
+            closes2=[x.close for x in chunk[:j+1]]
+            sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
+            if sig2!=sig:
+                move=(c-entry) if sig==1 else (entry-c)
+                risk=max(0.0,risk+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
+    return touched,reserve_jpy+risk,ever_ko
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -412,6 +451,19 @@ def main():
         out["split_tests_30000_reserve2000"][key]=summarize_split([
             split_staged_window(nas_w[i],sp_w[i],wa,2000.0,30000.0,0.015,0.0125)
             for i in range(m)
+        ])
+    out["sp500_stage_variants"]={}
+    variants={
+      "12_15_20_30":(12000.0,15000.0,20000.0,30000.0),
+      "13_17_22_30":(13000.0,17000.0,22000.0,30000.0),
+      "15_20_30":(15000.0,20000.0,30000.0),
+      "15_18_22_26_30":(15000.0,18000.0,22000.0,26000.0,30000.0),
+      "20_30":(20000.0,30000.0)
+    }
+    spw=windows(data["sp500_ko"])
+    for name,stages in variants.items():
+        out["sp500_stage_variants"][name]=summarize_staged([
+            staged_variant_window(w,0.01,2000.0,stages) for w in spw
         ])
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
