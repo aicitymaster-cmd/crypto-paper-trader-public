@@ -221,6 +221,71 @@ def summarize_reserve(rows):
       "median_final_jpy":round(median([total for _,_,total,_ in rows]),2) if n else None,
     }
 
+
+def staged_ko_window(chunk, ko_pct, reserve_jpy=2000.0, stages=(15000.0,20000.0,30000.0)):
+    """Stage profits: total-account targets are hit sequentially and risk sleeve is resized."""
+    reserve=float(reserve_jpy)
+    risk=max(0.0, START-reserve)
+    stage_idx=0
+    i=SLOW
+    touched=None
+    ever_ko=False
+    while i<len(chunk)-1 and risk>0 and stage_idx<len(stages):
+        total=reserve+risk
+        stage_target=stages[stage_idx]
+        if total>=stage_target:
+            stage_idx+=1
+            if stage_idx>=len(stages):
+                touched=hit_day(chunk[0].ts,chunk[i].ts)
+                break
+            continue
+        closes=[b.close for b in chunk[:i+1]]
+        sig=1 if sma(closes,FAST)>sma(closes,SLOW) else -1
+        entry=chunk[i].close
+        ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(risk/USDJPY_REF)/option_points
+        if lots<=0: break
+        j=i+1
+        while j<len(chunk):
+            b=chunk[j]; _,h,l,c=b.ohlc()
+            adverse=(entry-l) if sig==1 else (h-entry)
+            favorable=(h-entry) if sig==1 else (entry-l)
+            if adverse>=ko:
+                risk=0.0; ever_ko=True; i=j+1; break
+            stage_needed=stage_target-reserve
+            if risk+favorable*lots*USDJPY_REF>=stage_needed:
+                risk=stage_needed
+                stage_idx+=1
+                i=j+1
+                if stage_idx>=len(stages):
+                    touched=hit_day(chunk[0].ts,b.ts)
+                break
+            closes2=[x.close for x in chunk[:j+1]]
+            sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
+            if sig2!=sig:
+                move=(c-entry) if sig==1 else (entry-c)
+                risk=max(0.0,risk+move*lots*USDJPY_REF)
+                i=j+1
+                break
+            j+=1
+        else:
+            b=chunk[-1]
+            move=(b.close-entry) if sig==1 else (entry-b.close)
+            risk=max(0.0,risk+move*lots*USDJPY_REF)
+            i=len(chunk)
+    return touched, reserve+risk, ever_ko
+
+def summarize_staged(rows):
+    n=len(rows); hitdays=[d for d,total,koed in rows if d is not None]
+    return {
+      "windows":n,
+      "hit_7d_pct":round(100*sum(d is not None for d,_,_ in rows)/n,2) if n else 0,
+      "ko_pct":round(100*sum(koed for _,_,koed in rows)/n,2) if n else 0,
+      "median_hit_day":median(hitdays) if hitdays else None,
+      "median_final_jpy":round(median([total for _,total,_ in rows]),2) if n else None,
+    }
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -254,6 +319,14 @@ def main():
         for k in ("sp500_ko","nikkei_ko","nasdaq_ko"):
             out["distance_tests_30000_reserve2000"][dk][k]=summarize_reserve(
                 [ko_window_distance(w,30_000.0,kpct,2000.0) for w in windows(data[k])]
+            )
+    out["staged_tests_30000_reserve2000"]={}
+    for kpct in (0.01,0.0125,0.015):
+        dk=str(kpct)
+        out["staged_tests_30000_reserve2000"][dk]={}
+        for k in ("sp500_ko","nasdaq_ko"):
+            out["staged_tests_30000_reserve2000"][dk][k]=summarize_staged(
+                [staged_ko_window(w,kpct,2000.0,(15000.0,20000.0,30000.0)) for w in windows(data[k])]
             )
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
