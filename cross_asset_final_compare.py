@@ -139,6 +139,42 @@ def summarize(rows):
     }
 
 
+
+def ko_window_distance(chunk, target, ko_pct, reserve_jpy=2000.0):
+    """Reserve-cash KO model with variable KO distance."""
+    risk_start=START-reserve_jpy
+    if risk_start<=0 or reserve_jpy<0 or target<=reserve_jpy:
+        raise ValueError("invalid reserve")
+    eq=risk_start; i=SLOW; touched=None; ruined=False
+    needed=target-reserve_jpy
+    while i<len(chunk)-1 and eq>0 and touched is None:
+        closes=[b.close for b in chunk[:i+1]]
+        sig=1 if sma(closes,FAST)>sma(closes,SLOW) else -1
+        e=chunk[i]; entry=e.close; ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(eq/USDJPY_REF)/option_points
+        if lots<=0: break
+        j=i+1
+        while j<len(chunk):
+            b=chunk[j]; _,h,l,c=b.ohlc()
+            adverse=(entry-l) if sig==1 else (h-entry)
+            favorable=(h-entry) if sig==1 else (entry-l)
+            if adverse>=ko:
+                eq=0; ruined=True; i=j+1; break
+            if eq+favorable*lots*USDJPY_REF>=needed:
+                eq=needed; touched=hit_day(chunk[0].ts,b.ts); break
+            closes2=[x.close for x in chunk[:j+1]]
+            sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
+            if sig2!=sig:
+                move=(c-entry) if sig==1 else (entry-c)
+                eq=max(0,eq+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            eq=max(0,eq+move*lots*USDJPY_REF); i=len(chunk)
+    total=reserve_jpy+eq
+    return touched, (total<=0), total, ruined
+
 def ko_window_reserve(chunk, target, reserve_jpy):
     """Keep reserve cash untouched. Risk sleeve alone follows the KO model."""
     risk_start=START-reserve_jpy
@@ -210,6 +246,14 @@ def main():
         for k in ("sp500_ko","nikkei_ko","nasdaq_ko"):
             out["reserve_tests_30000"][rk][k]=summarize_reserve(
                 [ko_window_reserve(w,30_000.0,reserve) for w in windows(data[k])]
+            )
+    out["distance_tests_30000_reserve2000"]={}
+    for kpct in (0.0075,0.01,0.0125,0.015):
+        dk=str(kpct)
+        out["distance_tests_30000_reserve2000"][dk]={}
+        for k in ("sp500_ko","nikkei_ko","nasdaq_ko"):
+            out["distance_tests_30000_reserve2000"][dk][k]=summarize_reserve(
+                [ko_window_distance(w,30_000.0,kpct,2000.0) for w in windows(data[k])]
             )
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
