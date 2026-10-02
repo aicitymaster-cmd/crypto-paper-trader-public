@@ -286,6 +286,82 @@ def summarize_staged(rows):
       "median_final_jpy":round(median([total for _,total,_ in rows]),2) if n else None,
     }
 
+
+def split_staged_window(chunk_a, chunk_b, weight_a=0.5, reserve_jpy=2000.0,
+                        target=30000.0, ko_a=0.015, ko_b=0.0125):
+    """Approximate concurrent split between NASDAQ and S&P500 sleeves.
+    Each sleeve is simulated independently with staged logic, then combined by proportional P/L.
+    """
+    invest=START-reserve_jpy
+    alloc_a=invest*weight_a
+    alloc_b=invest*(1-weight_a)
+    def sleeve(chunk, alloc, ko_pct):
+        if alloc<=0: return {"hit":None,"final":0.0,"ko":False}
+        base_start=START
+        # scale the existing staged model from 8k risk sleeve to this allocation.
+        # Equivalent total-account stages are scaled around the reserve.
+        scale=alloc/8000.0
+        stages=(reserve_jpy+13000.0*scale, reserve_jpy+18000.0*scale, reserve_jpy+28000.0*scale)
+        # local copy of staged logic using allocation as sleeve
+        risk=alloc; i=SLOW; stage_idx=0; touched=None; ever_ko=False
+        while i<len(chunk)-1 and risk>0 and stage_idx<len(stages):
+            stage_target=stages[stage_idx]
+            if reserve_jpy+risk>=stage_target:
+                stage_idx+=1
+                if stage_idx>=len(stages):
+                    touched=hit_day(chunk[0].ts,chunk[i].ts)
+                    break
+                continue
+            closes=[b.close for b in chunk[:i+1]]
+            sig=1 if sma(closes,FAST)>sma(closes,SLOW) else -1
+            entry=chunk[i].close; ko=entry*ko_pct
+            option_points=ko+KO_PREMIUM+SPREAD/2
+            lots=(risk/USDJPY_REF)/option_points
+            if lots<=0: break
+            j=i+1
+            while j<len(chunk):
+                b=chunk[j]; _,h,l,c=b.ohlc()
+                adverse=(entry-l) if sig==1 else (h-entry)
+                favorable=(h-entry) if sig==1 else (entry-l)
+                if adverse>=ko:
+                    risk=0.0; ever_ko=True; i=j+1; break
+                needed=stage_target-reserve_jpy
+                if risk+favorable*lots*USDJPY_REF>=needed:
+                    risk=needed; stage_idx+=1; i=j+1
+                    if stage_idx>=len(stages): touched=hit_day(chunk[0].ts,b.ts)
+                    break
+                closes2=[x.close for x in chunk[:j+1]]
+                sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
+                if sig2!=sig:
+                    move=(c-entry) if sig==1 else (entry-c)
+                    risk=max(0.0,risk+move*lots*USDJPY_REF); i=j+1; break
+                j+=1
+            else:
+                b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+                risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
+        return {"hit":touched,"final":risk,"ko":ever_ko}
+
+    a=sleeve(chunk_a,alloc_a,ko_a); b=sleeve(chunk_b,alloc_b,ko_b)
+    total=reserve_jpy+a["final"]+b["final"]
+    hit = None
+    # conservative: declare success only if combined terminal wealth reaches target;
+    # if both sleeves have hit times, use the later one as an approximate combined hit time.
+    if total>=target:
+        hs=[x for x in (a["hit"],b["hit"]) if x is not None]
+        hit=max(hs) if hs else 7
+    return hit,total,a["ko"],b["ko"]
+
+def summarize_split(rows):
+    n=len(rows); hitdays=[d for d,total,ka,kb in rows if d is not None]
+    return {
+      "windows":n,
+      "hit_7d_pct":round(100*sum(d is not None for d,_,_,_ in rows)/n,2) if n else 0,
+      "any_sleeve_ko_pct":round(100*sum((ka or kb) for _,_,ka,kb in rows)/n,2) if n else 0,
+      "both_sleeves_ko_pct":round(100*sum((ka and kb) for _,_,ka,kb in rows)/n,2) if n else 0,
+      "median_hit_day":median(hitdays) if hitdays else None,
+      "median_final_jpy":round(median([total for _,total,_,_ in rows]),2) if n else None,
+    }
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -328,6 +404,15 @@ def main():
             out["staged_tests_30000_reserve2000"][dk][k]=summarize_staged(
                 [staged_ko_window(w,kpct,2000.0,(15000.0,20000.0,30000.0)) for w in windows(data[k])]
             )
+    out["split_tests_30000_reserve2000"]={}
+    nas_w=windows(data["nasdaq_ko"]); sp_w=windows(data["sp500_ko"])
+    m=min(len(nas_w),len(sp_w))
+    for wa in (0.25,0.5,0.75):
+        key=str(wa)
+        out["split_tests_30000_reserve2000"][key]=summarize_split([
+            split_staged_window(nas_w[i],sp_w[i],wa,2000.0,30000.0,0.015,0.0125)
+            for i in range(m)
+        ])
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
