@@ -138,6 +138,53 @@ def summarize(rows):
       "median_final_jpy":round(median([e for _,_,e in rows]),2) if n else None,
     }
 
+
+def ko_window_reserve(chunk, target, reserve_jpy):
+    """Keep reserve cash untouched. Risk sleeve alone follows the KO model."""
+    risk_start=START-reserve_jpy
+    if risk_start<=0 or reserve_jpy<0 or target<=reserve_jpy:
+        raise ValueError("invalid reserve")
+    eq=risk_start; i=SLOW; touched=None; ruined=False
+    needed=target-reserve_jpy
+    while i<len(chunk)-1 and eq>0 and touched is None:
+        closes=[b.close for b in chunk[:i+1]]
+        sig=1 if sma(closes,FAST)>sma(closes,SLOW) else -1
+        e=chunk[i]; entry=e.close; ko=entry*KO_PCT
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(eq/USDJPY_REF)/option_points
+        if lots<=0: break
+        j=i+1
+        while j<len(chunk):
+            b=chunk[j]; _,h,l,c=b.ohlc()
+            adverse=(entry-l) if sig==1 else (h-entry)
+            favorable=(h-entry) if sig==1 else (entry-l)
+            if adverse>=ko:
+                eq=0; ruined=True; i=j+1; break
+            if eq+favorable*lots*USDJPY_REF>=needed:
+                eq=needed; touched=hit_day(chunk[0].ts,b.ts); break
+            closes2=[x.close for x in chunk[:j+1]]
+            sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
+            if sig2!=sig:
+                move=(c-entry) if sig==1 else (entry-c)
+                eq=max(0,eq+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            eq=max(0,eq+move*lots*USDJPY_REF); i=len(chunk)
+    total=reserve_jpy+eq
+    return touched, (total<=0), total, ruined
+
+def summarize_reserve(rows):
+    n=len(rows); hitdays=[d for d,zero,total,koed in rows if d is not None]
+    return {
+      "windows":n,
+      "hit_7d_pct":round(100*sum(d is not None for d,_,_,_ in rows)/n,2) if n else 0,
+      "account_zero_pct":round(100*sum(zero for _,zero,_,_ in rows)/n,2) if n else 0,
+      "risk_sleeve_ko_pct":round(100*sum(koed for _,_,_,koed in rows)/n,2) if n else 0,
+      "median_hit_day":median(hitdays) if hitdays else None,
+      "median_final_jpy":round(median([total for _,_,total,_ in rows]),2) if n else None,
+    }
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -156,6 +203,14 @@ def main():
             out[key][k]=summarize([ko_window(w,target) for w in windows(data[k])])
         out[key]["fx_usdjpy_25x"]=summarize([leverage_window(w,25.0,target) for w in windows(data["fx_usdjpy"])])
         out[key]["btc_2x"]=summarize([leverage_window(w,2.0,target) for w in windows(data["btc_2x"])])
+    out["reserve_tests_30000"]={}
+    for reserve in (2000.0,4000.0,6000.0):
+        rk=str(int(reserve))
+        out["reserve_tests_30000"][rk]={}
+        for k in ("sp500_ko","nikkei_ko","nasdaq_ko"):
+            out["reserve_tests_30000"][rk][k]=summarize_reserve(
+                [ko_window_reserve(w,30_000.0,reserve) for w in windows(data[k])]
+            )
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
