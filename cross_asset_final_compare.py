@@ -457,6 +457,51 @@ def summarize_filtered(rows):
       "median_final_jpy":round(median([total for _,total,_,_ in traded]),2) if m else None,
     }
 
+
+def session_direction_window(chunk, direction="both", start_hour=13, end_hour=21,
+                             ko_pct=0.0125, reserve_jpy=2000.0):
+    risk=max(0.0, START-reserve_jpy)
+    stages=(15000.0,20000.0,30000.0)
+    i=SLOW; idx=0; touched=None; ever_ko=False; traded=False
+    while i<len(chunk)-1 and risk>0 and idx<len(stages):
+        h=chunk[i].ts.hour
+        in_session=(start_hour<=h<end_hour) if start_hour<end_hour else (h>=start_hour or h<end_hour)
+        if not in_session:
+            i+=1; continue
+        closes=[b.close for b in chunk[:i+1]]
+        fast=sma(closes,FAST); slow=sma(closes,SLOW)
+        sig=1 if fast>slow else -1
+        if direction=="long" and sig!=1:
+            i+=1; continue
+        if direction=="short" and sig!=-1:
+            i+=1; continue
+        traded=True
+        entry=chunk[i].close; ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(risk/USDJPY_REF)/option_points
+        j=i+1; stage_target=stages[idx]
+        while j<len(chunk):
+            b=chunk[j]; _,high,low,c=b.ohlc()
+            adverse=(entry-low) if sig==1 else (high-entry)
+            favorable=(high-entry) if sig==1 else (entry-low)
+            if adverse>=ko:
+                risk=0.0; ever_ko=True; i=j+1; break
+            needed=stage_target-reserve_jpy
+            if risk+favorable*lots*USDJPY_REF>=needed:
+                risk=needed; idx+=1; i=j+1
+                if idx>=len(stages): touched=hit_day(chunk[0].ts,b.ts)
+                break
+            closes2=[x.close for x in chunk[:j+1]]
+            sig2=1 if sma(closes2,FAST)>sma(closes2,SLOW) else -1
+            if sig2!=sig:
+                move=(c-entry) if sig==1 else (entry-c)
+                risk=max(0.0,risk+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
+    return touched,reserve_jpy+risk,ever_ko,traded
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -528,6 +573,14 @@ def main():
             key=f"gap{gap}_mv{mv}"
             out["nasdaq_filter_tests"][key]=summarize_filtered([
                 filtered_staged_window(w,0.0125,2000.0,gap,mv) for w in nw
+            ])
+    out["nasdaq_session_direction_tests"]={}
+    nw=windows(data["nasdaq_ko"])
+    for direction in ("both","long","short"):
+        for start,end in ((0,8),(8,13),(13,17),(13,21),(17,21),(21,24)):
+            key=f"{direction}_{start}_{end}"
+            out["nasdaq_session_direction_tests"][key]=summarize_filtered([
+                session_direction_window(w,direction,start,end,0.0125,2000.0) for w in nw
             ])
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
