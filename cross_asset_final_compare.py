@@ -558,6 +558,22 @@ def summarize_split_halves(rows):
         }
     return {"train":sm(rows[:cut]),"holdout":sm(rows[cut:])}
 
+
+def summarize_quarters(rows):
+    n=len(rows)
+    out=[]
+    for q in range(4):
+        a=n*q//4; b=n*(q+1)//4
+        part=rows[a:b]; m=len(part)
+        traded=[r for r in part if r[3]]
+        tm=len(traded)
+        out.append({
+          "windows":m,
+          "hit_pct":round(100*sum(d is not None for d,_,_,_ in part)/m,2) if m else 0,
+          "ko_when_traded_pct":round(100*sum(ko for _,_,ko,_ in traded)/tm,2) if tm else 0,
+        })
+    return out
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -652,6 +668,12 @@ def main():
             key=f"lb{lb}_atr{am}"
             rows=[breakout_staged_window(w,lb,am,0.0125,2000.0) for w in nw]
             out["nasdaq_breakout_refine_holdout"][key]=summarize_split_halves(rows)
+    out["nasdaq_breakout_quarter_check"]={}
+    nw=windows(data["nasdaq_ko"])
+    for lb,am in ((4,0.0),(4,0.3),(8,0.1)):
+        key=f"lb{lb}_atr{am}"
+        rows=[breakout_staged_window(w,lb,am,0.0125,2000.0) for w in nw]
+        out["nasdaq_breakout_quarter_check"][key]=summarize_quarters(rows)
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
