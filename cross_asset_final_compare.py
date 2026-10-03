@@ -634,6 +634,42 @@ def score_holdout(rows):
         }
     return {"train":one(train),"holdout":one(hold)}
 
+
+def breakout_target_window(chunk, target, lookback=4, ko_pct=0.0125, reserve_jpy=2000.0):
+    """4h breakout with a single account target, for holdout target-capacity tests."""
+    risk=max(0.0, START-reserve_jpy)
+    i=max(SLOW,lookback+1); touched=None; ever_ko=False; traded=False
+    while i<len(chunk)-1 and risk>0 and touched is None:
+        hist=chunk[i-lookback:i]
+        hh=max(b.high for b in hist); ll=min(b.low for b in hist)
+        cur=chunk[i]
+        if cur.close>hh: sig=1
+        elif cur.close<ll: sig=-1
+        else:
+            i+=1; continue
+        traded=True
+        entry=cur.close; ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(risk/USDJPY_REF)/option_points
+        j=i+1
+        while j<len(chunk):
+            b=chunk[j]; _,high,low,c=b.ohlc()
+            adverse=(entry-low) if sig==1 else (high-entry)
+            favorable=(high-entry) if sig==1 else (entry-low)
+            if adverse>=ko:
+                risk=0.0; ever_ko=True; i=j+1; break
+            needed=target-reserve_jpy
+            if risk+favorable*lots*USDJPY_REF>=needed:
+                risk=needed; touched=hit_day(chunk[0].ts,b.ts); break
+            if (sig==1 and c<hh) or (sig==-1 and c>ll):
+                move=(c-entry) if sig==1 else (entry-c)
+                risk=max(0.0,risk+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
+    return touched,reserve_jpy+risk,ever_ko,traded
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -747,6 +783,20 @@ def main():
                         sc=score_holdout(rows)
                         if sc["holdout"]["trade_windows"]>=20:
                             out["selective_80pct_search"][key]=sc
+    out["holdout_80pct_target_capacity"]={}
+    for name,bars in {"nasdaq":data["nasdaq_ko"],"sp500":data["sp500_ko"],"gold":data["gold_ko"],"russell":data["russell2000_ko"]}.items():
+        ws=windows(bars)
+        cut=len(ws)//2
+        for target in (10500.0,11000.0,11500.0,12000.0,12500.0,13000.0,14000.0,15000.0,17500.0,20000.0,25000.0,30000.0):
+            rows=[breakout_target_window(w,target,4,0.0125,2000.0) for w in ws]
+            hold=rows[cut:]
+            traded=[r for r in hold if r[3]]
+            m=len(traded)
+            out["holdout_80pct_target_capacity"][f"{name}_{int(target)}"]={
+              "trade_windows":m,
+              "hit_when_traded_pct":round(100*sum(d is not None for d,_,_,_ in traded)/m,2) if m else 0,
+              "ko_when_traded_pct":round(100*sum(k for _,_,k,_ in traded)/m,2) if m else 0
+            }
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
