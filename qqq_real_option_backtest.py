@@ -31,33 +31,29 @@ def load_entry_table():
     WITH b AS (
       SELECT
         contract_id,
-        CAST(date AS DATE) AS d,
-        CAST(expiration AS DATE) AS exp,
+        CAST(date AS TIMESTAMP) AS d,
+        CAST(expiration AS TIMESTAMP) AS exp,
         type,
         CAST(strike AS DOUBLE) AS strike,
         CAST(delta AS DOUBLE) AS delta,
         CAST(bid AS DOUBLE) AS bid,
-        CAST(ask AS DOUBLE) AS ask
+        CAST(ask AS DOUBLE) AS ask,
+        MAX(CAST(bid AS DOUBLE)) OVER (
+          PARTITION BY contract_id
+          ORDER BY CAST(date AS TIMESTAMP)
+          RANGE BETWEEN INTERVAL 1 DAY FOLLOWING AND INTERVAL 7 DAY FOLLOWING
+        ) AS future_max_bid_7d
       FROM read_parquet('{op}')
-    ),
-    e AS (
-      SELECT *,
-             date_diff('day', d, exp) AS dte
-      FROM b
-      WHERE date_diff('day', d, exp) BETWEEN 1 AND 7
-        AND ask > 0
-        AND ask * 100 <= {START_USD}
-        AND bid >= 0
     )
     SELECT
-      e.contract_id,e.d,e.exp,e.type,e.strike,e.delta,e.bid,e.ask,e.dte,
-      COALESCE(MAX(f.bid),0.0) AS future_max_bid_7d
-    FROM e
-    LEFT JOIN b f
-      ON f.contract_id=e.contract_id
-     AND f.d>e.d
-     AND f.d<=e.d + INTERVAL 7 DAY
-    GROUP BY ALL
+      contract_id,d,exp,type,strike,delta,bid,ask,
+      date_diff('day', d, exp) AS dte,
+      COALESCE(future_max_bid_7d,0.0) AS future_max_bid_7d
+    FROM b
+    WHERE date_diff('day', d, exp) BETWEEN 1 AND 7
+      AND ask > 0
+      AND ask * 100 <= {START_USD}
+      AND bid >= 0
     """
     ent=con.execute(q).df()
     u=con.execute(f"SELECT * FROM read_parquet('{und}')").df()
