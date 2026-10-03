@@ -24,7 +24,7 @@ jobs:
           tar -xzf repo.tar.gz --strip-components=1 -C repo
       - name: Install parquet dependencies
         shell: bash
-        run: python3 -m pip install --disable-pip-version-check --quiet pandas pyarrow
+        run: python3 -m pip install --disable-pip-version-check --quiet pandas pyarrow duckdb
       - name: Run QQQ real-option backtest
         shell: bash
         run: python3 repo/qqq_real_option_backtest.py
