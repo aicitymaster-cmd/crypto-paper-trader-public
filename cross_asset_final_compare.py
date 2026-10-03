@@ -502,6 +502,62 @@ def session_direction_window(chunk, direction="both", start_hour=13, end_hour=21
             risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
     return touched,reserve_jpy+risk,ever_ko,traded
 
+
+def breakout_staged_window(chunk, lookback=12, atr_mult=0.5, ko_pct=0.0125, reserve_jpy=2000.0):
+    risk=max(0.0, START-reserve_jpy)
+    stages=(15000.0,20000.0,30000.0)
+    i=max(SLOW,lookback+1); idx=0; touched=None; ever_ko=False; traded=False
+    while i<len(chunk)-1 and risk>0 and idx<len(stages):
+        hist=chunk[i-lookback:i]
+        hh=max(b.high for b in hist); ll=min(b.low for b in hist)
+        trs=[max(b.high-b.low,abs(b.high-hist[max(0,j-1)].close),abs(b.low-hist[max(0,j-1)].close)) for j,b in enumerate(hist)]
+        atr=sum(trs)/len(trs) if trs else 0.0
+        px=chunk[i].close
+        long_break=px > hh + atr_mult*atr
+        short_break=px < ll - atr_mult*atr
+        if not (long_break or short_break):
+            i+=1; continue
+        traded=True
+        sig=1 if long_break else -1
+        entry=px; ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(risk/USDJPY_REF)/option_points
+        j=i+1; stage_target=stages[idx]
+        while j<len(chunk):
+            b=chunk[j]; _,high,low,c=b.ohlc()
+            adverse=(entry-low) if sig==1 else (high-entry)
+            favorable=(high-entry) if sig==1 else (entry-low)
+            if adverse>=ko:
+                risk=0.0; ever_ko=True; i=j+1; break
+            needed=stage_target-reserve_jpy
+            if risk+favorable*lots*USDJPY_REF>=needed:
+                risk=needed; idx+=1; i=j+1
+                if idx>=len(stages): touched=hit_day(chunk[0].ts,b.ts)
+                break
+            # exit when price crosses back inside breakout range
+            if (sig==1 and c<hh) or (sig==-1 and c>ll):
+                move=(c-entry) if sig==1 else (entry-c)
+                risk=max(0.0,risk+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
+    return touched,reserve_jpy+risk,ever_ko,traded
+
+def summarize_split_halves(rows):
+    n=len(rows); cut=n//2
+    def sm(part):
+        traded=[r for r in part if r[3]]
+        m=len(traded)
+        return {
+          "windows":len(part),
+          "trade_windows":m,
+          "hit_all_pct":round(100*sum(d is not None for d,_,_,_ in part)/len(part),2) if part else 0,
+          "hit_when_traded_pct":round(100*sum(d is not None for d,_,_,_ in traded)/m,2) if m else 0,
+          "ko_when_traded_pct":round(100*sum(ko for _,_,ko,_ in traded)/m,2) if m else 0,
+        }
+    return {"train":sm(rows[:cut]),"holdout":sm(rows[cut:])}
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -582,6 +638,13 @@ def main():
             out["nasdaq_session_direction_tests"][key]=summarize_filtered([
                 session_direction_window(w,direction,start,end,0.0125,2000.0) for w in nw
             ])
+    out["nasdaq_breakout_holdout"]={}
+    nw=windows(data["nasdaq_ko"])
+    for lb in (6,12,18,24):
+        for am in (0.0,0.25,0.5,1.0):
+            key=f"lb{lb}_atr{am}"
+            rows=[breakout_staged_window(w,lb,am,0.0125,2000.0) for w in nw]
+            out["nasdaq_breakout_holdout"][key]=summarize_split_halves(rows)
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
