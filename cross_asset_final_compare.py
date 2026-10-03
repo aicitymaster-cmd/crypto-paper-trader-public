@@ -645,6 +645,13 @@ def main():
             key=f"lb{lb}_atr{am}"
             rows=[breakout_staged_window(w,lb,am,0.0125,2000.0) for w in nw]
             out["nasdaq_breakout_holdout"][key]=summarize_split_halves(rows)
+    out["nasdaq_breakout_refine_holdout"]={}
+    nw=windows(data["nasdaq_ko"])
+    for lb in (4,6,8):
+        for am in (0.0,0.05,0.1,0.15,0.2,0.25,0.3):
+            key=f"lb{lb}_atr{am}"
+            rows=[breakout_staged_window(w,lb,am,0.0125,2000.0) for w in nw]
+            out["nasdaq_breakout_refine_holdout"][key]=summarize_split_halves(rows)
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
