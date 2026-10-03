@@ -574,6 +574,66 @@ def summarize_quarters(rows):
         })
     return out
 
+
+def rare_selective_breakout(chunk, lookback=4, ko_pct=0.0125, reserve_jpy=2000.0,
+                            min_range_pct=0.0, min_close_pos=0.0, direction="both"):
+    """Selective breakout. Designed for holdout evaluation, not in-sample fitting."""
+    risk=max(0.0, START-reserve_jpy)
+    stages=(15000.0,20000.0,30000.0)
+    i=max(SLOW,lookback+1); idx=0; touched=None; ever_ko=False; traded=False
+    while i<len(chunk)-1 and risk>0 and idx<len(stages):
+        hist=chunk[i-lookback:i]
+        hh=max(b.high for b in hist); ll=min(b.low for b in hist)
+        rng=(hh-ll)/hist[-1].close if hist[-1].close else 0.0
+        cur=chunk[i]
+        if rng<min_range_pct or hh<=ll:
+            i+=1; continue
+        pos=(cur.close-ll)/(hh-ll)
+        long_break=cur.close>hh and pos>=1.0+min_close_pos
+        short_break=cur.close<ll and pos<=-min_close_pos
+        if direction=="long": short_break=False
+        if direction=="short": long_break=False
+        if not (long_break or short_break):
+            i+=1; continue
+        traded=True
+        sig=1 if long_break else -1
+        entry=cur.close; ko=entry*ko_pct
+        option_points=ko+KO_PREMIUM+SPREAD/2
+        lots=(risk/USDJPY_REF)/option_points
+        j=i+1; stage_target=stages[idx]
+        while j<len(chunk):
+            b=chunk[j]; _,high,low,c=b.ohlc()
+            adverse=(entry-low) if sig==1 else (high-entry)
+            favorable=(high-entry) if sig==1 else (entry-low)
+            if adverse>=ko:
+                risk=0.0; ever_ko=True; i=j+1; break
+            needed=stage_target-reserve_jpy
+            if risk+favorable*lots*USDJPY_REF>=needed:
+                risk=needed; idx+=1; i=j+1
+                if idx>=len(stages): touched=hit_day(chunk[0].ts,b.ts)
+                break
+            if (sig==1 and c<hh) or (sig==-1 and c>ll):
+                move=(c-entry) if sig==1 else (entry-c)
+                risk=max(0.0,risk+move*lots*USDJPY_REF); i=j+1; break
+            j+=1
+        else:
+            b=chunk[-1]; move=(b.close-entry) if sig==1 else (entry-b.close)
+            risk=max(0.0,risk+move*lots*USDJPY_REF); i=len(chunk)
+    return touched,reserve_jpy+risk,ever_ko,traded
+
+def score_holdout(rows):
+    n=len(rows); cut=n//2
+    train=rows[:cut]; hold=rows[cut:]
+    def one(part):
+        tr=[r for r in part if r[3]]
+        m=len(tr)
+        return {
+          "trade_windows":m,
+          "hit_when_traded_pct":round(100*sum(d is not None for d,_,_,_ in tr)/m,2) if m else 0,
+          "ko_when_traded_pct":round(100*sum(k for _,_,k,_ in tr)/m,2) if m else 0
+        }
+    return {"train":one(train),"holdout":one(hold)}
+
 def option_opportunity_proxy(chunk):
     start=chunk[0].close
     max_up=max(b.high for b in chunk)/start-1
@@ -674,6 +734,19 @@ def main():
         key=f"lb{lb}_atr{am}"
         rows=[breakout_staged_window(w,lb,am,0.0125,2000.0) for w in nw]
         out["nasdaq_breakout_quarter_check"][key]=summarize_quarters(rows)
+    out["selective_80pct_search"]={}
+    candidates={"nasdaq":data["nasdaq_ko"],"sp500":data["sp500_ko"],"gold":data["gold_ko"],"russell":data["russell2000_ko"]}
+    for name,bars in candidates.items():
+        ws=windows(bars)
+        for lb in (2,4,6,8,12):
+            for rp in (0.0,0.003,0.005,0.008,0.01,0.015):
+                for cp in (0.0,0.02,0.05,0.1):
+                    for direction in ("both","long","short"):
+                        key=f"{name}_lb{lb}_r{rp}_c{cp}_{direction}"
+                        rows=[rare_selective_breakout(w,lb,0.0125,2000.0,rp,cp,direction) for w in ws]
+                        sc=score_holdout(rows)
+                        if sc["holdout"]["trade_windows"]>=20:
+                            out["selective_80pct_search"][key]=sc
     op=[]
     for w in windows(data["nikkei_option_proxy"]):
         op.append(option_opportunity_proxy(w))
